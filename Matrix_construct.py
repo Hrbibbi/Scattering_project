@@ -3,6 +3,7 @@ import C2_surface as C2
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+import plane_wave as PW
 def construct_sub_column(Dipoles,Surface):
     #Major bottleneck in code:
     evaluations=HD.evaluate_Hertzian_Dipoles_at_points_parallel(Surface.points,Dipoles)
@@ -17,10 +18,10 @@ def construct_sub_column(Dipoles,Surface):
 
     for index,Dieval in enumerate(evaluations):
         E,H=Dieval
-        E_tau1[:,index]=np.sum(S1.tau1*E,axis=1)
-        E_tau2[:,index]=np.sum(S1.tau2*E,axis=1)
-        H_tau1[:,index]=np.sum(S1.tau1*H,axis=1)
-        H_tau2[:,index]=np.sum(S1.tau2*H,axis=1)
+        E_tau1[:,index]=np.sum(Surface.tau1*E,axis=1)
+        E_tau2[:,index]=np.sum(Surface.tau2*E,axis=1)
+        H_tau1[:,index]=np.sum(Surface.tau1*H,axis=1)
+        H_tau2[:,index]=np.sum(Surface.tau2*H,axis=1)
     
     return np.vstack((E_tau1,E_tau2,H_tau1,H_tau2))
 
@@ -39,19 +40,28 @@ def construct_matrix(Surface,auxsurface1,auxsurface2,mu,int_epsilon,out_epsilon,
 
     return np.column_stack((Col1,Col2,Col3,Col4))
 
+def construct_RHS(Surface,planewave):
+    E,H=planewave.evaluate_at_points(Surface.points)
+    b1=np.sum(Surface.tau1*E,axis=1)
+    b2=np.sum(Surface.tau2*E,axis=1)
+    b3=np.sum(Surface.tau1*H,axis=1)
+    b4=np.sum(Surface.tau2*H,axis=1)
+    return np.concatenate((b1,b2,b3,b4))
 
-
-N=100*2
-N_prime=50**2
-M=50**2
+'''
+N=10*2
+N_prime=10**2
+M=10**2
 S1=C2.sphere(1,np.array([0,0,0]),int(np.sqrt(M)))
 #Auxiliiary_surfaces
 S2=C2.sphere(0.8,np.array([0,0,0]),int(np.sqrt(N)))
 S3=C2.sphere(1.2,np.array([0,0,0]),int(np.sqrt(N_prime)))
 #plt.plot(np.linalg.norm(S3.tau2,2,axis=1))
 #plt.show()
-
+PW1=PW.Plane_wave(np.array([0,1,0]),0,1)
+print(np.shape(construct_RHS(S1,PW1)))
 print(np.shape(construct_matrix(S1,S2,S3,1,1,2,1)))
+'''
 '''
 DP1=HD.construct_Hertzian_Dipoles(S2.points,S2.tau1,np.ones([N]),np.ones([N]),np.ones([N]))
 DP2=HD.construct_Hertzian_Dipoles(S2.points,S2.tau2,np.ones([N]),np.ones([N]),np.ones([N]))

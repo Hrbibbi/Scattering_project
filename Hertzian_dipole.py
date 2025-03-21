@@ -39,6 +39,7 @@ class Hertzian_Dipole():
                 [ -self.direction[0]/N, self.direction[1]*self.direction[2]/N, self.direction[1]  ],
                 [         0           ,                 -N                   , self.direction[2]  ]
             ])
+    
     def evaluate_at_points(self,X):
         p=X-self.position
         r=np.sqrt(np.sum(p**2,axis=1))
