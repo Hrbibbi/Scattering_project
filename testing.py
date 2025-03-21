@@ -9,14 +9,14 @@ omega=1
 epsilon_int=2
 epsilon_ext=1
 k=omega*np.sqrt(epsilon_ext*mu)
-S=C2.sphere(1,np.array([0,0,0]),30)
-A=Matrix_construct.construct_matrix(S,S.construct_conformal_surface(0.9),S.construct_conformal_surface(1.1),mu,epsilon_int,epsilon_ext,omega)
-PW1=PW.Plane_wave(np.array([0,1,0]),0,k)
+S=C2.sphere(1,np.array([0,0,0]),5)
+#S=C2.inverted_parabola(5)
+A=Matrix_construct.construct_matrix(S,S.construct_conformal_surface(0.8),S.construct_conformal_surface(1.2),mu,epsilon_int,epsilon_ext,omega)
+PW1=PW.Plane_wave(np.array([1,0,0]),0,k)
 rhs=Matrix_construct.construct_RHS(S,PW1)
 
 C=np.linalg.solve(A,rhs)
-
-#plt.plot(np.abs(C))
-#plt.show()
-#plt.imshow(np.abs(A))
-#plt.show()
+plt.plot(np.abs(C))
+plt.show()
+plt.imshow(np.abs(A))
+plt.show()

@@ -54,6 +54,7 @@ class C2_surface:
         # Legend
         ax.legend()
         plt.show()
+
 def sphere(radius,center,num_points):
     r=radius
     x0,y0,z0=center
