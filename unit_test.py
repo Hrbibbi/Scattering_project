@@ -110,14 +110,13 @@ def solve_and_plot():
     and 2 times that since we have two surfaces. The dipoles have orientation tau_1 and tau_2.
 
     '''
-    A = Matrix_construct.construct_matrix(S, S.construct_conformal_surface(0.8), S.construct_conformal_surface(1.2), mu, epsilon_int, epsilon_ext, omega)
-    
+    A,DP1,DP2 = Matrix_construct.construct_matrix(S, S.construct_conformal_surface(0.8), S.construct_conformal_surface(1.2), mu, epsilon_int, epsilon_ext, omega)
+    print(np.shape(A))
     '''
     The right hand side is just a plane wave with polarization notation as Nikoline and propagation direction (x,y,z)
     '''
-    PW1 = PW.Plane_wave(np.array([1, 0, 0]), 0, k)
+    PW1 = PW.Plane_wave(np.array([0, 0, 1]), np.pi, k)
     rhs = Matrix_construct.construct_RHS(S, PW1)
-    
     C = np.linalg.solve(A, rhs)
     
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
@@ -142,28 +141,9 @@ import C2_surface as C2
 '''
 Test matrix setup
 '''
-#solve_and_plot()
+solve_and_plot()
 
 '''
 Test just a single dipole
 '''
-#plot_hertzian_dipole(np.array([0,0,1]))
-
-S=C2.sphere(1,np.array([0,0,0]),10)
-points=S.points
-normals=S.normals
-tau1=S.tau1
-tau2=S.tau2
-import pandas as pd
-
-# Assuming S.points, S.normals, S.tau1, S.tau2 are Nx3 numpy arrays
-data = np.hstack([points, normals, tau1, tau2])  # Concatenating arrays horizontally
-
-# Creating column names
-columns = ['px', 'py', 'pz', 'nx', 'ny', 'nz', 't1x', 't1y', 't1z', 't2x', 't2y', 't2z']
-
-# Convert to DataFrame
-df = pd.DataFrame(data, columns=columns)
-
-# Save to CSV
-df.to_csv("sphere_data.csv", index=False)
+#plot_hertzian_dipole(np.array([1,0,0]))

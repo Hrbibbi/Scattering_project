@@ -1,12 +1,18 @@
+'''
+Hertzian dipole class used for for approximation of the scattered electric and magnetic field
+'''
+
+#Import of modules
 import numpy as np
 import warnings
 import multiprocessing
 
+
 class Hertzian_Dipole():
     def __init__(self,position,direction,mu,epsilon,omega):
-        '''
-        Check input
-        '''
+        #----------------------------------------------------------------------------
+        #Parameter check
+        #----------------------------------------------------------------------------
         for param, name in zip([mu, epsilon, omega], ["mu", "epsilon", "omega"]):
             if not isinstance(param, (int, float, np.number)):
                 raise TypeError(f"{name} must be a numerical value (int, float, or numpy number), got {type(param)} instead.")
@@ -22,6 +28,7 @@ class Hertzian_Dipole():
         if not np.isclose(direction_norm, 1, atol=1e-6):
             raise ValueError(f"Direction vector must be a unit vector (norm = 1), but got norm = {direction_norm:.6f}.")
 
+        #constant values
         self.mu=mu
         self.epsilon=epsilon
         self.omega=omega
@@ -30,85 +37,139 @@ class Hertzian_Dipole():
         #vector values
         self.position = position
         self.direction = direction
-        if np.array_equal(self.direction,np.array([0,0,1])):
-            self.rot_matrix=np.eye(3)
-        else:
-            N=np.sqrt(self.direction[0]**2+self.direction[1]**2)
-            self.rot_matrix=np.array([
-                [ self.direction[1]/N , self.direction[0]*self.direction[2]/N, self.direction[0]  ],
-                [ -self.direction[0]/N, self.direction[1]*self.direction[2]/N, self.direction[1]  ],
-                [         0           ,                 -N                   , self.direction[2]  ]
-            ])
-    
+    #--------------------------------------------------------------------------------
+    # Methods
+    #--------------------------------------------------------------------------------
     def evaluate_at_points(self,X):
+        #precomputes
         p=X-self.position
         r=np.sqrt(np.sum(p**2,axis=1))
         exponential_term=np.exp(-1j*self.wavenumber*r)
-        electric_constant=1/(4*np.pi*self.omega*self.epsilon)
-        E_x=electric_constant*p[:,0]*p[:,2]*( (1j*self.wavenumber**2)/(r**3) + (3*self.wavenumber)/(r**4)- (3j)/(r**5) )*exponential_term
-        E_y=electric_constant*p[:,1]*p[:,2]*( (1j*self.wavenumber**2)/(r**3) + (3*self.wavenumber)/(r**4)- (3j)/(r**5) )*exponential_term
-        E_z=electric_constant*( (-3j*p[:,2]**2)/(r**5) + (3*self.wavenumber*p[:,2])/(r**4) + 
-                               (1j*(self.wavenumber**2*p[:,2]**2+1))/(r**3) - (self.wavenumber)/(r**2) )*exponential_term -(
-                                1j*self.omega*self.mu/(4*np.pi*r)*exponential_term
-                               )
-        E_H = np.column_stack((E_x, E_y, E_z))
-        H_x=-p[:,1]/(4*np.pi)*( 1j*self.wavenumber/r**2 + 1/r**3)*exponential_term
-        H_y=-p[:,0]/(4*np.pi)*( 1j*self.wavenumber/r**2 + 1/r**3)*exponential_term
-        H_z=np.zeros(np.shape(H_x))
-        H_H=np.column_stack((H_x,H_y,H_z)) 
-        E_rotated = (self.rot_matrix @ E_H.T).T
-        H_rotated = (self.rot_matrix @ H_H.T).T
-        return [E_rotated,H_rotated]
-    
+        k=self.wavenumber
+        x,y,z=p[:,0],p[:,1],p[:,2]
+        dx,dy,dz=self.direction
+        omega=self.omega
+        mu=self.mu
+
+        front_term1=-1j*omega*mu/(4*np.pi*r)*exponential_term
+        front_term2=exponential_term/(4*np.pi*omega*self.epsilon*r**5)
+        term1=1j*k**2*r**2+3*k*r-3j
+        term2=1j-k*r
+        E_x=front_term1*dx+front_term2*( x**2*dx*term1+x*(y*dy+z*dz)*term1+r**2*dx*term2 )
+        E_y=front_term1*dy+front_term2*( y**2*dy*term1+y*(x*dx+z*dz)*term1+r**2*dy*term2 )
+        E_z=front_term1*dz+front_term2*( z**2*dz*term1+z*(x*dx+y*dy)*term1+r**2*dz*term2 )
+        E=np.column_stack((E_x,E_y,E_z))
+        
+        term3=exponential_term*(1+1j*k*r)/(4*np.pi*r**3)
+        H_x=-(y*dz-z*dy)*term3
+        H_y=(x*dz-z*dx)*term3
+        H_z=-(x*dy-y*dx)*term3
+        H=np.column_stack((H_x,H_y,H_z))
+        return [E,H]
+    '''
+    Unused function
     def crossprod(self,points,vectors):
         E_H,H_H=self.evaluate_at_points(points)
         E_C=np.cross(E_H,vectors)
         H_C=np.cross(H_H,vectors)
         return [E_C,H_C]
+    '''
+
 
 def construct_Hertzian_Dipoles(positions,directions,mus,epsilons,omegas):
+    '''
+    Returns list of Hertzian dipoles
+    
+    input:
+    positions: Nx3 numpy array with positions of each dipole
+    directions: Nx3 numpy array with unit direction of each dipole
+    mus: N numpy array with magnetic permeability for each dipole
+    epsilons: N numpy array with electric permitivity for each dipole
+    omegas: N numpy array with the frequency for each dipole
+    '''
     return [Hertzian_Dipole(positions[idx,:],directions[idx,:],mus[idx],epsilons[idx],omegas[idx]) for idx in range(len(mus))]
 
+'''
+Unused function
 def evaluate_Hertzian_Dipoles_at_points(points,Dipoles):
     evaluations=[]
     for Dipole in Dipoles:
         evaluations.append(Dipole.evaluate_at_points(points))
     return evaluations
-
+'''
 def evaluate_dipole(args):
+    '''
+    Wrapper function for evaluation Hertzian dipoles in parallel
+    '''
     dipole, points = args
     return dipole.evaluate_at_points(points)
 
 def evaluate_Hertzian_Dipoles_at_points_parallel(points, Dipoles):
+    '''
+    Returns a Nx2xMx3 numpy array with the evaluations of each each dipole in the M points
+
+    input:
+    points: Mx3 numpy array of points to evaluate
+    dipoles N list if the Hertzian dipoles
+    '''
     with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
         evaluations = pool.map(evaluate_dipole, [(dipole, points) for dipole in Dipoles])
     return evaluations
 
+def evaluate_linear_combination(points,Dipoles,coefficents):
+    evaluations=evaluate_Hertzian_Dipoles_at_points_parallel(points,Dipoles)
+    E_tot,H_tot=np.zeros(np.shape(points),dtype=complex),np.zeros(np.shape(points),dtype=complex)
+    for index,Dieval in enumerate(evaluations):
+        E,H=Dieval
+        E_tot+=coefficents[index]*E
+        H_tot+=coefficents[index]*H
+    return E_tot,H_tot
 
-
+#---------------------------------------------------------------------------------------
+#                                     Unit tests
+#---------------------------------------------------------------------------------------
 '''
-N=150
-mus=np.ones(N)
-epsilons=np.ones(N)
-omegas=np.ones(N)
-positions=1+np.random.rand(N,3)
-directions=np.zeros([N,3])
-directions[:,2]=1
-import time
-Dipoles=construct_Hertzian_Dipoles(positions,directions,mus,epsilons,omegas)
-n=250
-grid_param=np.linspace(-1,1,n)
-x,y=np.meshgrid(grid_param,grid_param)
-points=np.column_stack( (x.ravel(),y.ravel(),np.ones_like(x.ravel()) ))
-print(np.shape(points))
-#E,H=H1.evaluate_at_points(points)
-
-
-print(f"Number of dipoles {N}")
-start=time.time()
-evaluate_Hertzian_Dipoles_at_points(points,Dipoles)
-print(f"time for sequential {time.time()-start}")
-start=time.time()
-evaluate_Hertzian_Dipoles_at_points_parallel(points,Dipoles)
-print(f"time for parallel {time.time()-start}")
-'''
+def test_dipole_calculation():
+    DP1=Hertzian_Dipole(np.array([0,0,0]),np.array([0,0,1]),1,1,1)
+    #print(DP1.rot_matrix_inverse)
+    DP2=Hertzian_Dipole(np.array([0,0,0]),np.array([1,0,0]),1,1,1)
+    DP3=Hertzian_Dipole(np.array([0,0,0]),np.array([np.sqrt(2)/2,0,np.sqrt(2)/2]),1,1,1)
+    test_points=np.array([
+        [np.pi,0,0],
+        [0,1,0],
+        [0,0,1],
+        #[100,100,100]
+    ])
+    test_values_z=np.array([
+        [0,0,0.0080630 + 0.022763j],
+        [0,0,-0.042995 + 0.066965j],
+        [0,0,-0.047934 - 0.21992j],
+    ])
+    test_values_x=np.array([
+        [-0.016126 + 0.005133j,0,0],
+        [-0.042995 + 0.066965j,0,0],
+        [-0.042995 + 0.066965j,0,0]
+    ])
+    test_values_H=np.array([
+        [0,-0.005701319678 - 0.01791122400j,0],
+        [-0.07775206489 + 0.01694669221j,0,0.07775206489 - 0.01694669221j],
+        [0,-0.07775206489 + 0.01694669221j,0]
+    ])
+    test_values_H2=np.array([
+        [0,0,0],
+        [0,0,0.1099580247 - 0.02396624194j],
+        [0,-0.1099580247 + 0.02396624194j,0]
+    ])
+    evalution_values=DP1.evaluate_at_points(test_points)
+    E,H=evalution_values
+    print(np.mean(np.abs(E-test_values_z)))
+    evalution_values2=DP2.evaluate_at_points(test_points)
+    E2,H2=evalution_values2
+    print(np.mean(np.abs(E2-test_values_x)))
+    
+    evalution_value3=DP3.evaluate_at_points(test_points)
+    E3,H3=evalution_value3
+    print(np.mean(np.abs(H3-test_values_H)))
+    print(H3)
+'''  
+#test_dipole_calculation()

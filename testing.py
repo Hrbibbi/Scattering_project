@@ -1,22 +1,17 @@
+import Hertzian_dipole as HD
 import numpy as np
-import matplotlib.pyplot as plt
-
-import Matrix_construct
-import C2_surface as C2
-import plane_wave as PW
-mu=1
-omega=1
-epsilon_int=2
-epsilon_ext=1
-k=omega*np.sqrt(epsilon_ext*mu)
-S=C2.sphere(1,np.array([0,0,0]),5)
-#S=C2.inverted_parabola(5)
-A=Matrix_construct.construct_matrix(S,S.construct_conformal_surface(0.8),S.construct_conformal_surface(1.2),mu,epsilon_int,epsilon_ext,omega)
-PW1=PW.Plane_wave(np.array([1,0,0]),0,k)
-rhs=Matrix_construct.construct_RHS(S,PW1)
-
-C=np.linalg.solve(A,rhs)
-plt.plot(np.abs(C))
-plt.show()
-plt.imshow(np.abs(A))
-plt.show()
+import time
+k=1
+p=np.random.rand(k,3)
+vals=np.random.rand(k,3)
+dir=vals/np.linalg.norm(vals,axis=1,keepdims=True)
+mus=np.ones(k)
+eps=np.ones(k)
+om=np.ones(k)
+dipoles=HD.construct_Hertzian_Dipoles(p,dir,mus,eps,om)
+points=1+np.random.rand(10**6,3)
+#HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,dipoles)
+DP1=dipoles[0]
+start=time.time()
+DP1.evaluate_at_points(points)
+print(f"{time.time()-start}")
