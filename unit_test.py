@@ -84,7 +84,7 @@ def solve_and_plot():
     import plane_wave as PW
     import C2_surface as C2
 
-    '''the differen parameters i set the interiror epsilon to 2 and the outside to 1'''
+    '''the different parameters i set the interiror epsilon to 2 and the outside to 1'''
     mu = 1
     omega = 1
     epsilon_int = 2
@@ -102,7 +102,7 @@ def solve_and_plot():
       This works for the sphere as the tangent and normal doesnt change, but maybe for more complex surfaces it needs to be more shopisticated
     '''
     num_points=5 
-    S = C2.sphere(1, np.array([0, 0, 0]), num_points) # construct a C2 of a sphere with radius 1 at 0,0,0 which has 5^2 test points
+    S = C2.sphere(1, np.array([0, 0, 1]), num_points) # construct a C2 of a sphere with radius 1 at 0,0,0 which has 5^2 test points
     #S=C2.in(5) 
     '''
     Construction of the matrix as input i give it the surface S and the inner and outer auxiliary surface plus the constants
@@ -115,7 +115,7 @@ def solve_and_plot():
     '''
     The right hand side is just a plane wave with polarization notation as Nikoline and propagation direction (x,y,z)
     '''
-    PW1 = PW.Plane_wave(np.array([0, 0, 1]), np.pi, k)
+    PW1 = PW.Plane_wave(np.array([0, 0, 1]), np.pi, k,mu,omega)
     rhs = Matrix_construct.construct_RHS(S, PW1)
     C = np.linalg.solve(A, rhs)
     
@@ -142,7 +142,19 @@ import C2_surface as C2
 Test matrix setup
 '''
 solve_and_plot()
+file_path = "matrix_A_simple.csv"
 
+# Read file and replace 'i' with 'j'
+with open(file_path, 'r') as f:
+    content = f.read().replace('i', 'j')
+
+# Convert to numpy array
+from io import StringIO
+
+matrix = np.loadtxt(StringIO(content), delimiter=",", dtype=complex)
+plt.imshow(np.abs(matrix))
+plt.colorbar()
+plt.show()
 '''
 Test just a single dipole
 '''

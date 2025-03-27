@@ -66,14 +66,15 @@ class Hertzian_Dipole():
         H_z=-(x*dy-y*dx)*term3
         H=np.column_stack((H_x,H_y,H_z))
         return [E,H]
-    '''
-    Unused function
-    def crossprod(self,points,vectors):
-        E_H,H_H=self.evaluate_at_points(points)
-        E_C=np.cross(E_H,vectors)
-        H_C=np.cross(H_H,vectors)
-        return [E_C,H_C]
-    '''
+
+
+#--------------------------------------------------------------------------------
+#
+#
+#                            Dipole related functions
+#
+#
+#--------------------------------------------------------------------------------
 
 
 def construct_Hertzian_Dipoles(positions,directions,mus,epsilons,omegas):
@@ -81,22 +82,14 @@ def construct_Hertzian_Dipoles(positions,directions,mus,epsilons,omegas):
     Returns list of Hertzian dipoles
     
     input:
-    positions: Nx3 numpy array with positions of each dipole
-    directions: Nx3 numpy array with unit direction of each dipole
-    mus: N numpy array with magnetic permeability for each dipole
-    epsilons: N numpy array with electric permitivity for each dipole
-    omegas: N numpy array with the frequency for each dipole
+        positions: Nx3 numpy array with positions of each dipole
+        directions: Nx3 numpy array with unit direction of each dipole
+        mus: N numpy array with magnetic permeability for each dipole
+        epsilons: N numpy array with electric permitivity for each dipole
+        omegas: N numpy array with the frequency for each dipole
     '''
     return [Hertzian_Dipole(positions[idx,:],directions[idx,:],mus[idx],epsilons[idx],omegas[idx]) for idx in range(len(mus))]
 
-'''
-Unused function
-def evaluate_Hertzian_Dipoles_at_points(points,Dipoles):
-    evaluations=[]
-    for Dipole in Dipoles:
-        evaluations.append(Dipole.evaluate_at_points(points))
-    return evaluations
-'''
 def evaluate_dipole(args):
     '''
     Wrapper function for evaluation Hertzian dipoles in parallel
@@ -109,8 +102,8 @@ def evaluate_Hertzian_Dipoles_at_points_parallel(points, Dipoles):
     Returns a Nx2xMx3 numpy array with the evaluations of each each dipole in the M points
 
     input:
-    points: Mx3 numpy array of points to evaluate
-    dipoles N list if the Hertzian dipoles
+        points: Mx3 numpy array of points to evaluate
+        dipoles N list if the Hertzian dipoles
     '''
     with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
         evaluations = pool.map(evaluate_dipole, [(dipole, points) for dipole in Dipoles])
@@ -124,10 +117,13 @@ def evaluate_linear_combination(points,Dipoles,coefficents):
         E_tot+=coefficents[index]*E
         H_tot+=coefficents[index]*H
     return E_tot,H_tot
+        
 
 #---------------------------------------------------------------------------------------
 #                                     Unit tests
 #---------------------------------------------------------------------------------------
+#DP1=Hertzian_Dipole(np.array([0,1,1]),np.array([1,0,0]),1,1,1)
+#evaluate_dipoles_with_reflectance(np.array([0,0,0]),[DP1],0.3,-0.3)
 '''
 def test_dipole_calculation():
     DP1=Hertzian_Dipole(np.array([0,0,0]),np.array([0,0,1]),1,1,1)
