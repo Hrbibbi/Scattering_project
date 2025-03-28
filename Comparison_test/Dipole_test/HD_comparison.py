@@ -6,6 +6,7 @@ Hertzian dipole class used for for approximation of the scattered electric and m
 import numpy as np
 import warnings
 import multiprocessing
+import pandas as pd
 
 
 class Hertzian_Dipole():
@@ -65,56 +66,48 @@ class Hertzian_Dipole():
         H_y=(x*dz-z*dx)*term3
         H_z=-(x*dy-y*dx)*term3
         H=np.column_stack((H_x,H_y,H_z))
-        return [E,H]
-
-
-#--------------------------------------------------------------------------------
-#
-#
-#                            Dipole related functions
-#
-#
-#--------------------------------------------------------------------------------
-
-
-def construct_Hertzian_Dipoles(positions,directions,mus,epsilons,omegas):
-    '''
-    Returns list of Hertzian dipoles
+        return [E,H]        
     
-    input:
-        positions: Nx3 numpy array with positions of each dipole
-        directions: Nx3 numpy array with unit direction of each dipole
-        mus: N numpy array with magnetic permeability for each dipole
-        epsilons: N numpy array with electric permitivity for each dipole
-        omegas: N numpy array with the frequency for each dipole
-    '''
-    return [Hertzian_Dipole(positions[idx,:],directions[idx,:],mus[idx],epsilons[idx],omegas[idx]) for idx in range(len(mus))]
 
-def evaluate_dipole(args):
-    '''
-    Wrapper function for evaluation Hertzian dipoles in parallel
-    '''
-    dipole, points = args
-    return dipole.evaluate_at_points(points)
+import ast  # For safely evaluating string representations of lists
 
-def evaluate_Hertzian_Dipoles_at_points_parallel(points, Dipoles):
-    '''
-    Returns a Nx2xMx3 numpy array with the evaluations of each each dipole in the M points
+def compute_fields_from_csv(param_file, testpoints_file, output_file):
+    # Read parameters
+    param_df = pd.read_csv(param_file)
+    params = dict(zip(param_df["Parameter"], param_df["Value"]))
 
-    input:
-        points: Mx3 numpy array of points to evaluate
-        dipoles N list if the Hertzian dipoles
-    '''
-    with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
-        evaluations = pool.map(evaluate_dipole, [(dipole, points) for dipole in Dipoles])
-    return evaluations
+    # Convert values properly
+    mu = float(params["mu"])
+    epsilon = float(params["epsilon"])
+    omega = float(params["omega"])
+    position = np.array([params["position_x"], params["position_y"], params["position_z"]])
+    direction = np.array([params["direction_x"], params["direction_y"], params["direction_z"]])
 
-def evaluate_linear_combination(points,Dipoles,coefficents):
-    evaluations=evaluate_Hertzian_Dipoles_at_points_parallel(points,Dipoles)
-    E_tot,H_tot=np.zeros(np.shape(points),dtype=complex),np.zeros(np.shape(points),dtype=complex)
-    for index,Dieval in enumerate(evaluations):
-        E,H=Dieval
-        E_tot+=coefficents[index]*E
-        H_tot+=coefficents[index]*H
-    return E_tot,H_tot
-        
+    # Read test points
+    testpoints_df = pd.read_csv(testpoints_file)
+    testpoints = testpoints_df.to_numpy()  # Convert DataFrame to NumPy array
+
+    # Debugging: Check types
+    print(f"mu: {mu}, epsilon: {epsilon}, omega: {omega}")
+    print(f"Position: {position}, Direction: {direction}")
+    print(f"Testpoints shape: {testpoints.shape}")
+
+    # Compute fields (assuming Hertzian_Dipole is defined)
+    DP = Hertzian_Dipole(position, direction, mu, epsilon, omega)
+    E, H = DP.evaluate_at_points(testpoints)
+
+    # Convert complex values into real & imaginary parts for saving
+    data = {
+        "Ex_Re": E[:, 0].real, "Ex_Im": E[:, 0].imag,
+        "Ey_Re": E[:, 1].real, "Ey_Im": E[:, 1].imag,
+        "Ez_Re": E[:, 2].real, "Ez_Im": E[:, 2].imag,
+        "Hx_Re": H[:, 0].real, "Hx_Im": H[:, 0].imag,
+        "Hy_Re": H[:, 1].real, "Hy_Im": H[:, 1].imag,
+        "Hz_Re": H[:, 2].real, "Hz_Im": H[:, 2].imag,
+    }
+
+    output_df = pd.DataFrame(data)
+    output_df.to_csv(output_file, index=False)
+
+    print(f"Computed field data saved to {output_file}")
+    

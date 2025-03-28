@@ -29,20 +29,22 @@ class Plane_wave():
 
         if np.array_equal(self.propagation_vector,np.array([0,0,1])):
             self.rot_matrix=np.eye(3)
-        #elif np.array_equal(self.propagation_vector,np.array([0,0,-1])):
-        #    self.rot_matrix=-np.eye(3)
-        #    self.rot_matrix[2,2]=-1
-        #    print(self.rot_matrix)
+        elif np.array_equal(self.propagation_vector,np.array([0,0,-1])):
+            self.rot_matrix=np.array([
+                [1,0,0],
+                [0,-1,0],
+                [0,0,-1]
+            ])
+            print("hej")
         else:
             N=np.sqrt(self.propagation_vector[0]**2+self.propagation_vector[1]**2)
-            print(N)
             self.rot_matrix=np.array([
                 [ self.propagation_vector[1]/N , self.propagation_vector[0]*self.propagation_vector[2]/N, self.propagation_vector[0]  ],
                 [ -self.propagation_vector[0]/N, self.propagation_vector[1]*self.propagation_vector[2]/N, self.propagation_vector[1]  ],
                 [         0           ,                 -N                   , self.propagation_vector[2]  ]
             ])
         self.rot_matrix_inv=np.linalg.inv(self.rot_matrix)
-        print(self.rot_matrix_inv)
+        print(self.rot_matrix)
     def evaluate_at_points(self,X):
         #---------------------------------------------------------------------------
         #                           Rotate points and precompute
@@ -117,10 +119,11 @@ def get_reflected_field_at_points(points,PW,eta1,eta2):
     H_ref = r_perp * H_perp + r_par * H_par
     return E_ref, H_ref, r_perp,r_par
 
-
+'''
 PW1=Plane_wave(np.array([0,1,0]),0,1,1,1)
 points=np.array([ [1,0,0] , [0,1,0], [0,0,1]])
 E,H=PW1.evaluate_at_points(points)
 #print(E)
 E_ref,H_ref,r_perp,r_par=get_reflected_field_at_points(points,PW1,1,2)
 print(r_perp)
+'''

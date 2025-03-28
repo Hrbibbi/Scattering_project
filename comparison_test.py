@@ -11,7 +11,8 @@ k=omega*np.sqrt(epsilon_ext*mu)
 
 def check_rhs():
     S=C2.sphere(1,np.array([0,0,1]),5)
-    PW1=PW.Plane_wave(np.array([0,0,1]),0,k,mu,omega)
+    PW1=PW.Plane_wave(np.array([0,0,1]),np.pi/2,k,mu,omega)
+    #PW2=PW.Plane_wave(np.array([0,0,1]),0,k,mu,omega)
     rhs=np.abs(Matrix_construct.construct_RHS(S,PW1))
 
     file_path = "vector_b_simple.csv"
@@ -24,6 +25,7 @@ def check_rhs():
     from io import StringIO
 
     rhs_2 = np.abs(np.loadtxt(StringIO(content), delimiter=",", dtype=complex))
+    #rhs_2 = np.abs(Matrix_construct.construct_RHS(S,PW2))
     plt.plot(np.sort(rhs), label="A code (rhs) sorted")
     plt.plot(np.sort(rhs_2), label="P and N code (rhs_2) sorted")
     plt.legend()
@@ -54,4 +56,4 @@ def check_A():
     plt.show()
     plt.imshow(np.sort(A_NP))
     plt.show()
-check_A()
+check_rhs()
