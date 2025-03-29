@@ -47,20 +47,17 @@ if False:
     mu=1
     epsilon=1
     omega=1
-    position=[0,0,0]
-    direction=[1,0,0]
-    testpoints = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])  # Fixed incorrect array creation
-
+    propagation_vector=[0,-1,0]
+    polarization=0
+    testpoints = np.array([[0,1,0],[0,2,0],[0,3,0]])
     param_data = [
     ["mu", mu],
     ["epsilon", epsilon],
     ["omega", omega],
-    ["position_x", position[0]],
-    ["position_y", position[1]],
-    ["position_z", position[2]],
-    ["direction_x", direction[0]],
-    ["direction_y", direction[1]],
-    ["direction_z", direction[2]],
+    ['polarization',polarization],
+    ["propagation_x", propagation_vector[0]],
+    ["propagation_y", propagation_vector[1]],
+    ["propagation_z", propagation_vector[2]],
     ]
 
     # Convert testpoints to DataFrame and add column names
@@ -70,8 +67,8 @@ if False:
     param_df = pd.DataFrame(param_data, columns=["Parameter", "Value"])
 
     # Save both to CSV
-    param_df.to_csv("dipole_params_simple.csv", index=False)
-    testpoints_df.to_csv("dipole_testpoints_simple.csv", index=False)
+    param_df.to_csv("PW_params_simple.csv", index=False)
+    testpoints_df.to_csv("PW_testpoints_simple.csv", index=False)
 
 #----------------------------------------------------------------------------
 #                           Data creation random
@@ -84,13 +81,10 @@ if False:
     mu = np.random.uniform(0.5, 10)
     epsilon = np.random.uniform(0.5, 10)
     omega = np.random.uniform(0.5, 10)
-
-    # Random position (assuming within a range, e.g., -10 to 10)
-    position = np.random.uniform(-10, 10, size=3).tolist()
-
+    polarization = np.random.uniform(0,np.pi/2)
     # Random unit vector for direction
     random_vector = np.random.uniform(-1, 1, size=3)
-    direction = (random_vector / np.linalg.norm(random_vector)).tolist()
+    propagation_vector = (random_vector / np.linalg.norm(random_vector)).tolist()
 
     # Generate 100x3 test points within a range (e.g., -10 to 10)
     testpoints = np.random.uniform(-10, 10, size=(100, 3)).tolist()
@@ -99,12 +93,10 @@ if False:
     ["mu", mu],
     ["epsilon", epsilon],
     ["omega", omega],
-    ["position_x", position[0]],
-    ["position_y", position[1]],
-    ["position_z", position[2]],
-    ["direction_x", direction[0]],
-    ["direction_y", direction[1]],
-    ["direction_z", direction[2]],
+    ['polarization',polarization],
+    ["propagation_x", propagation_vector[0]],
+    ["propagation_y", propagation_vector[1]],
+    ["propagation_z", propagation_vector[2]],
     ]
 
     # Convert testpoints to DataFrame and add column names
@@ -114,8 +106,8 @@ if False:
     param_df = pd.DataFrame(param_data, columns=["Parameter", "Value"])
 
     # Save both to CSV
-    param_df.to_csv("dipole_params_random.csv", index=False)
-    testpoints_df.to_csv("dipole_testpoints_random.csv", index=False)
+    param_df.to_csv("PW_params_random.csv", index=False)
+    testpoints_df.to_csv("PW_testpoints_random.csv", index=False)
 
 #----------------------------------------------------------------------------
 #                         Simple case for single Dipole
@@ -126,8 +118,8 @@ if False:
     #               A Implementation (Python)
     # -----------------------------------------------
     print("Running Python implementation...")
-    import HD_comparison
-    HD_comparison.compute_fields_from_csv("dipole_params_simple.csv", "dipole_testpoints_simple.csv", "A_simple.csv")
+    import plane_wave_comparison
+    plane_wave_comparison.compute_fields_from_csv("PW_params_simple.csv","PW_testpoints_simple.csv","A_simple.csv")
 
     # -----------------------------------------------
     #               P and N Implementation (C++)
@@ -138,7 +130,7 @@ if False:
     Ex_re,Ex_im,Ey_re,Ey_im,Ez_re,Ez_im,Hx_re,Hx_im,Hy_re,Hy_im,Hz_re,Hz_im
     '''   
     print("Running C++ implementation...")
-    run_cpp_code("./PN_dipole_solver", "dipole_params_simple.csv", "dipole_testpoints_simple.csv", "PN_simple.csv")
+    run_cpp_code("./PN_dipole_solver", "PW_params_simple.csv","PW_testpoints_simple.csv","A_simple.csv")
 
     # -----------------------------------------------
     #               Compare Results
@@ -150,8 +142,8 @@ if False:
     #               A Implementation (Python)
     # -----------------------------------------------
     print("Running Python implementation...")
-    import HD_comparison
-    HD_comparison.compute_fields_from_csv("dipole_params_random.csv", "dipole_testpoints_random.csv", "A_random.csv")
+    import plane_wave_comparison
+    plane_wave_comparison.compute_fields_from_csv("PW_params_random.csv","PW_testpoints_random.csv","A_random.csv")
 
     # -----------------------------------------------
     #               P and N Implementation (C++)
@@ -162,7 +154,7 @@ if False:
     Ex_re,Ex_im,Ey_re,Ey_im,Ez_re,Ez_im,Hx_re,Hx_im,Hy_re,Hy_im,Hz_re,Hz_im
     '''   
     print("Running C++ implementation...")
-    run_cpp_code("./PN_dipole_solver", "dipole_params_random.csv", "dipole_testpoints_random.csv", "PN_random.csv")
+    run_cpp_code("./PN_dipole_solver", "PW_params_random.csv","PW_testpoints_random.csv", "PN_random.csv")
 
     # -----------------------------------------------
     #               Compare Results
