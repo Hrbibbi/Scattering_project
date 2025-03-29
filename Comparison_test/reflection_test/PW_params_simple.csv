@@ -1,0 +1,9 @@
+Parameter,Value
+mu,1
+epsilon_air,1
+epsilon_substrate,2
+omega,1
+polarization,0
+propagation_x,0
+propagation_y,-1
+propagation_z,0

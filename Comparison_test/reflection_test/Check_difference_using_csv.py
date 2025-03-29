@@ -1,5 +1,5 @@
 #----------------------------------------------------------------------------
-#             Comparison test for evaluation of planewaves
+#             Comparison test for evaluation of reflected fields
 #----------------------------------------------------------------------------
 
 import numpy as np
@@ -45,14 +45,16 @@ def compare_csv_files(file1, file2):
 
 if False:
     mu=1
-    epsilon=1
+    epsilon_air=1
+    epsilon_substrate=2
     omega=1
     propagation_vector=[0,-1,0]
     polarization=0
     testpoints = np.array([[0,1,0],[0,2,0],[0,3,0]])
     param_data = [
     ["mu", mu],
-    ["epsilon", epsilon],
+    ["epsilon_air", epsilon_air],
+    ['epsilon_substrate',epsilon_substrate],
     ["omega", omega],
     ['polarization',polarization],
     ["propagation_x", propagation_vector[0]],
@@ -79,7 +81,8 @@ if False:
 
     # Generate random values
     mu = np.random.uniform(0.5, 10)
-    epsilon = np.random.uniform(0.5, 10)
+    epsilon_air = np.random.uniform(0.5, 10)
+    epsilon_substrate=np.random.uniform(0.5, 10)
     omega = np.random.uniform(0.5, 10)
     polarization = np.random.uniform(0,np.pi/2)
     # Random unit vector for direction
@@ -91,7 +94,8 @@ if False:
 
     param_data = [
     ["mu", mu],
-    ["epsilon", epsilon],
+    ["epsilon_air", epsilon_air],
+    ["epsilon_substrate", epsilon_substrate],
     ["omega", omega],
     ['polarization',polarization],
     ["propagation_x", propagation_vector[0]],
@@ -110,7 +114,7 @@ if False:
     testpoints_df.to_csv("PW_testpoints_random.csv", index=False)
 
 #----------------------------------------------------------------------------
-#                         Simple case for planewave
+#                         Simple case for single Dipole
 #----------------------------------------------------------------------------
  
 if False:
@@ -118,8 +122,8 @@ if False:
     #               A Implementation (Python)
     # -----------------------------------------------
     print("Running Python implementation...")
-    import plane_wave_comparison
-    plane_wave_comparison.compute_fields_from_csv("PW_params_simple.csv","PW_testpoints_simple.csv","A_simple.csv")
+    import Comparison_test.reflection_test.reflection_comparison as reflection_comparison
+    reflection_comparison.compute_fields_from_csv("PW_params_simple.csv","PW_testpoints_simple.csv","A_simple.csv")
 
     # -----------------------------------------------
     #               P and N Implementation (C++)
@@ -128,6 +132,7 @@ if False:
     If you implement a function that takes as inout the dipole_params csv 
     and dipole_testpoints csv and then spits out the E and H fields in a csv stored as
     Ex_re,Ex_im,Ey_re,Ey_im,Ez_re,Ez_im,Hx_re,Hx_im,Hy_re,Hy_im,Hz_re,Hz_im
+    also make it print or display the coefficents Gamma_perp, Gamma_par
     '''   
     print("Running C++ implementation...")
     run_cpp_code("./PN_dipole_solver", "PW_params_simple.csv","PW_testpoints_simple.csv","A_simple.csv")
@@ -142,8 +147,8 @@ if False:
     #               A Implementation (Python)
     # -----------------------------------------------
     print("Running Python implementation...")
-    import plane_wave_comparison
-    plane_wave_comparison.compute_fields_from_csv("PW_params_random.csv","PW_testpoints_random.csv","A_random.csv")
+    import Comparison_test.reflection_test.reflection_comparison as reflection_comparison
+    reflection_comparison.compute_fields_from_csv("PW_params_random.csv","PW_testpoints_random.csv","A_random.csv")
 
     # -----------------------------------------------
     #               P and N Implementation (C++)
@@ -152,6 +157,7 @@ if False:
     If you implement a function that takes as inout the dipole_params csv 
     and dipole_testpoints csv and then spits out the E and H fields in a csv stored as
     Ex_re,Ex_im,Ey_re,Ey_im,Ez_re,Ez_im,Hx_re,Hx_im,Hy_re,Hy_im,Hz_re,Hz_im
+    also make it print or display the coefficents Gamma_perp, Gamma_par
     '''   
     print("Running C++ implementation...")
     run_cpp_code("./PN_dipole_solver", "PW_params_random.csv","PW_testpoints_random.csv", "PN_random.csv")
