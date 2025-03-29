@@ -109,7 +109,7 @@ def get_reflected_field_at_points(points,PW,mu,epsilon_substrate,epsilon_air):
     H_ref = r_perp * H_perp + r_par * H_par
     return E_ref, H_ref, r_perp,r_par
 
-
+'''
 mu=1
 epsilon_air=1
 epsilon_substrate=11.6964
@@ -123,3 +123,4 @@ points=np.array([
 ])
 E_ref,H_ref,r_perp,r_par=get_reflected_field_at_points(points,PW1,mu,epsilon_substrate,epsilon_air)
 print(E_ref)
+'''
