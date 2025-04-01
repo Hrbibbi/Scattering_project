@@ -162,12 +162,27 @@ def construct_matrix(Surface,inneraux,outeraux,mu,air_epsilon,substrate_epsilon,
 
     return np.column_stack((Col1+Col1_ref,Col2+Col2_ref,Col3,Col4)),intDP1,intDP2,refDP1,refDP2,extDP1,extDP2
 
-def Construct_MAS_system(Scatter_information,Incident_information,Substrate_information):
+def Construct_solve_MAS_system(Scatter_information,Incident_information,Substrate_information):
     '''
     Function that constructs the MAS_system based on information given about the scatterer,incident wave and substrate
 
     Output:
-        Returns the MAS matrix, RHS and the dipoles that can be used to reconstruct fields
+        coefficents: list of computed coefficents
+            -> C1: coefficents for interior dipoles in tau1 orientation
+            -> C2: coefficents for interior dipoles in tau2 orientation
+            -> C3: coefficents for exterior dipoles in tau1 orientation
+            -> C4: coefficents for exterior dipoles in tau2 orientation
+        Interior dipoles: list of dipoles placed in the interior
+            -> intDP1: interior dipoles placed in tau1 orientation 
+            -> intDP2: interior dipoles placed in tau2 orientation
+            -> refDP1: reflected dipoles placed in tau1 orientation
+            -> refDP2: reflected dipoles placed in tau2 orientation
+        Exteror dipoles: list of dipoles placed in the exterior
+            -> extDP1: exterior dipoles placed in tau1 orientation
+            -> extDP2: exterior dipoles placed in tau2 orientation
+        reflection_coefficents: reflection coefficents:
+            -> r_perp: reflection coefficents for the perpendicular part
+            -> r_par: reflection coefficents for the parallel part
 
     Input:
         Scatter_information: Directory storing the required information about the scattering object
@@ -217,7 +232,7 @@ def Construct_MAS_system(Scatter_information,Incident_information,Substrate_info
     substrate_epsilon = Substrate_information['epsilon']
     
     #-----------------------------------------------------------------------------
-    #                           Construction
+    #                                Construction
     #-----------------------------------------------------------------------------
     # Construct the RHS and reflection coefficients
     RHS, r_perp, r_par = construct_RHS(Surface, propagation_vector, polarization, 
@@ -228,12 +243,60 @@ def Construct_MAS_system(Scatter_information,Incident_information,Substrate_info
                                   incident_epsilon, substrate_epsilon, scatter_epsilon, omega, 
                                   r_perp, r_par)
     
-    return MAS_matrix, RHS
+    #-----------------------------------------------------------------------------
+    #                                 Solution
+    #-----------------------------------------------------------------------------
+    N,N_prime=len(intDP1),len(extDP1)
+    print(np.shape(MAS_matrix))
+    start=time.time()
+    C=np.linalg.lstsq(MAS_matrix,RHS,rcond=-1)[0]
+    print(f"time take {time.time()-start}")
+    C_int,C_ext=C[:2*N],C[2*N:]
+    C_1,C_2=np.split(C_int,2)
+    C_3,C_4=np.split(C_ext,2)
 
-'''
-Surface=C2.sphere(1,np.array([0,0,1]),30)
-inneraux=C2.sphere(0.8,np.array([0,0,1]),30)
-outeraux=C2.sphere(1.2,np.array([0,0,1]),30)
+    #-----------------------------------------------------------------------------
+    #                                 Optional
+    #-----------------------------------------------------------------------------
+    
+    #-----------------------------------------------------------------------------
+    #                                 Return part
+    #-----------------------------------------------------------------------------
+
+    int_coeff=[C_1,C_2]
+    ext_coeff=[C_3,C_4]
+    InteriorDipoles=[intDP1,intDP2,refDP1,refDP2]
+    ExteriorDipoles=[extDP1,extDP2]
+    reflection_coefficents=[r_perp,r_par]
+    
+    return int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles, reflection_coefficents
+
+def compute_scattered_field_at_point(points,int_coeff,InteriorDipoles,reflection_coefficents):
+    C_1,C_2=int_coeff
+    intDP1,intDP2,refDP1,refDP2=InteriorDipoles
+    r_perp,r_par=reflection_coefficents
+    evaluations1=HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,intDP1)
+    evaluations2=HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,intDP2)
+    
+    evaluations3=HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,refDP1)
+    evaluations4=HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,refDP2)
+    evaluations=[evaluations1,evaluations2]
+    E_tot,H_tot=np.zeros(np.shape(points),dtype=complex),np.zeros(np.shape(points),dtype=complex)
+    for evaluation in evaluations:
+        for index,Dieval in enumerate(evaluation):
+            E,H=Dieval
+            E_tot+=C_1[index]*E
+            H_tot+=C_2[index]*H
+
+
+    #E_scat=C_1*(E_intDP1+(r_perp+r_par)*E_refDP1)+C_2*(E_intDP2+(r_perp+r_par)*E_refDP2)
+    #H_scat=C_1*(H_intDP1+(r_perp+r_par)*H_refDP1)+C_2*(H_intDP2+(r_perp+r_par)*H_refDP2)
+    #return E_scat,H_scat
+
+
+Surface=C2.sphere(1,np.array([0,0,1]),50)
+inneraux=C2.sphere(0.8,np.array([0,0,1]),20)
+outeraux=C2.sphere(1.2,np.array([0,0,1]),20)
 scatter_epsilon=2
 mu=1
 Scatterinformation={'Surface': Surface,'inneraux': inneraux, 'outeraux': outeraux,'epsilon': scatter_epsilon,'mu': mu}
@@ -245,10 +308,6 @@ omega=1
 Incidentinformation={'propagation_vector': propagation_vector, 'polarization': polarization, 'epsilon': epsilon_air, 'mu': mu, 'omega':omega}
 
 Substrateinformation={'mu': mu,'epsilon': 10}
-A,b=Construct_MAS_system(Scatterinformation,Incidentinformation,Substrateinformation)
-
-C=np.linalg.lstsq(A,b,rcond=-1)[0]
-plt.plot(np.abs(C))
-plt.show()
-
-'''
+int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles, reflection_coefficents=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,Substrateinformation)
+testpoints=np.random.rand(100,3)
+compute_scattered_field_at_point(testpoints,int_coeff,InteriorDipoles,reflection_coefficents)
