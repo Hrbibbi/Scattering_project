@@ -6,7 +6,7 @@ Hertzian dipole class used for for approximation of the scattered electric and m
 import numpy as np
 import warnings
 import multiprocessing
-
+from numba import jit
 
 class Hertzian_Dipole():
     def __init__(self,position,direction,mu,epsilon,omega):

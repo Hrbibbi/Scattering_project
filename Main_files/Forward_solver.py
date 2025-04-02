@@ -235,26 +235,26 @@ def Construct_solve_MAS_system(Scatter_information,Incident_information,Substrat
     #                                Construction
     #-----------------------------------------------------------------------------
     # Construct the RHS and reflection coefficients
+    con_time=time.time()
     RHS, r_perp, r_par = construct_RHS(Surface, propagation_vector, polarization, 
                                         incident_epsilon, substrate_epsilon, incident_mu, omega)
-    
+    print(r_perp)
     # Construct the MAS matrix
     MAS_matrix,intDP1,intDP2,refDP1,refDP2,extDP1,extDP2 = construct_matrix(Surface, inneraux, outeraux, scatter_mu, 
                                   incident_epsilon, substrate_epsilon, scatter_epsilon, omega, 
                                   r_perp, r_par)
-    
+    print(f"construction time {time.time()-con_time}")
     #-----------------------------------------------------------------------------
     #                                 Solution
     #-----------------------------------------------------------------------------
+
+    sol_start=time.time()
     N,N_prime=len(intDP1),len(extDP1)
-    print(np.shape(MAS_matrix))
-    start=time.time()
     C=np.linalg.lstsq(MAS_matrix,RHS,rcond=-1)[0]
-    print(f"time take {time.time()-start}")
     C_int,C_ext=C[:2*N],C[2*N:]
     C_1,C_2=np.split(C_int,2)
     C_3,C_4=np.split(C_ext,2)
-
+    print(f"solution time {time.time()-sol_start}")
     #-----------------------------------------------------------------------------
     #                                 Optional
     #-----------------------------------------------------------------------------
@@ -275,28 +275,21 @@ def compute_scattered_field_at_point(points,int_coeff,InteriorDipoles,reflection
     C_1,C_2=int_coeff
     intDP1,intDP2,refDP1,refDP2=InteriorDipoles
     r_perp,r_par=reflection_coefficents
-    evaluations1=HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,intDP1)
-    evaluations2=HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,intDP2)
+
+    evaluations1=np.array(HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,intDP1))
+    evaluations2=np.array(HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,intDP2))
+    evaluations3=np.array(HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,refDP1))
+    evaluations4=np.array(HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,refDP2))
+    weights1=np.sum( C_1[:,None,None,None]*(evaluations1+(r_perp+r_par)*evaluations3), axis=0)
+    weights2=np.sum( C_2[:,None,None,None]*(evaluations2+(r_perp+r_par)*evaluations4), axis=0)
+    E_scat,H_scat=weights1+weights2
     
-    evaluations3=HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,refDP1)
-    evaluations4=HD.evaluate_Hertzian_Dipoles_at_points_parallel(points,refDP2)
-    evaluations=[evaluations1,evaluations2]
-    E_tot,H_tot=np.zeros(np.shape(points),dtype=complex),np.zeros(np.shape(points),dtype=complex)
-    for evaluation in evaluations:
-        for index,Dieval in enumerate(evaluation):
-            E,H=Dieval
-            E_tot+=C_1[index]*E
-            H_tot+=C_2[index]*H
-
-
-    #E_scat=C_1*(E_intDP1+(r_perp+r_par)*E_refDP1)+C_2*(E_intDP2+(r_perp+r_par)*E_refDP2)
-    #H_scat=C_1*(H_intDP1+(r_perp+r_par)*H_refDP1)+C_2*(H_intDP2+(r_perp+r_par)*H_refDP2)
-    #return E_scat,H_scat
+    return E_scat,H_scat
 
 
 Surface=C2.sphere(1,np.array([0,0,1]),50)
-inneraux=C2.sphere(0.8,np.array([0,0,1]),20)
-outeraux=C2.sphere(1.2,np.array([0,0,1]),20)
+inneraux=C2.sphere(0.8,np.array([0,0,1]),10)
+outeraux=C2.sphere(1.2,np.array([0,0,1]),10)
 scatter_epsilon=2
 mu=1
 Scatterinformation={'Surface': Surface,'inneraux': inneraux, 'outeraux': outeraux,'epsilon': scatter_epsilon,'mu': mu}
@@ -309,5 +302,30 @@ Incidentinformation={'propagation_vector': propagation_vector, 'polarization': p
 
 Substrateinformation={'mu': mu,'epsilon': 10}
 int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles, reflection_coefficents=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,Substrateinformation)
-testpoints=np.random.rand(100,3)
-compute_scattered_field_at_point(testpoints,int_coeff,InteriorDipoles,reflection_coefficents)
+points=C2.sphere(1.5,np.array([0,0,1]),20).points
+E,H=compute_scattered_field_at_point(points,int_coeff,InteriorDipoles,reflection_coefficents)
+
+fig = plt.figure(figsize=(18, 12))
+titles = ["E_x", "E_y", "E_z", "H_x", "H_y", "H_z"]
+E_components = [E[:, 0], E[:, 1], E[:, 2]]
+H_components = [H[:, 0], H[:, 1], H[:, 2]]
+
+for i in range(3):
+    ax = fig.add_subplot(2, 3, i+1, projection='3d')
+    sc = ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=E_components[i].real, cmap='viridis')
+    ax.set_title(titles[i])
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    fig.colorbar(sc, ax=ax)
+
+    ax = fig.add_subplot(2, 3, i+4, projection='3d')
+    sc = ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=H_components[i].real, cmap='viridis')
+    ax.set_title(titles[i + 3])
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    fig.colorbar(sc, ax=ax)
+
+plt.tight_layout()
+plt.show()

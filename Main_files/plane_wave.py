@@ -84,10 +84,9 @@ def get_reflected_field_at_points(points,PW,mu,epsilon_substrate,epsilon_air):
     nu=np.array([0,1,0])
     eta_substrate=np.sqrt(mu/epsilon_substrate)
     eta_air=np.sqrt(mu/epsilon_air)
-    theta_inc=np.abs( np.mod( np.arccos(np.dot(PW.propagation_vector,nu)), np.pi) ) 
-    #theta_ref=theta_inc
-    theta_trans=np.arcsin(eta_air/eta_substrate*np.sin(theta_inc))
-
+    prop_vec=PW.propagation_vector
+    theta_inc=np.arccos(np.dot(prop_vec,nu))
+    theta_trans=np.arcsin(epsilon_air/epsilon_substrate*np.sin(theta_inc))
     #---------------------------------------------------------------
     #                       Calculate the fields
     #---------------------------------------------------------------

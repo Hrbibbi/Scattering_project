@@ -77,7 +77,7 @@ if False:
 #----------------------------------------------------------------------------
 
 if False:  
-    np.random.seed(42)
+    #np.random.seed(42)
 
     # Generate random values
     mu = np.random.uniform(0.5, 10)
@@ -166,3 +166,7 @@ if False:
     #               Compare Results
     # -----------------------------------------------
     compare_csv_files("A_simple.csv", "PN_simple.csv")
+
+import reflection_comparison
+reflection_comparison.compute_fields_from_csv("PW_params_random.csv","PW_testpoints_random.csv","A_random.csv")
+#reflection_comparison.compute_fields_from_csv("PW_params_simple.csv","PW_testpoints_simple.csv","A_simple.csv")
