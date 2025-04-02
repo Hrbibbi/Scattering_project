@@ -81,7 +81,7 @@ def get_reflected_field_at_points(points,PW,mu,epsilon_substrate,epsilon_air):
     #---------------------------------------------------------------
     #                     Calculate the angles
     #---------------------------------------------------------------
-    nu=np.array([0,1,0])
+    nu=np.array([0,0,-1])
     eta_substrate=np.sqrt(mu/epsilon_substrate)
     eta_air=np.sqrt(mu/epsilon_air)
     prop_vec=PW.propagation_vector
@@ -104,7 +104,6 @@ def get_reflected_field_at_points(points,PW,mu,epsilon_substrate,epsilon_air):
 
     r_par=(eta_substrate*np.cos(theta_trans)-eta_air*np.cos(theta_inc) ) / ( eta_substrate*np.cos(theta_trans)+eta_air*np.cos(theta_inc) )
     E_ref = r_perp * E_perp + r_par * E_par
-    # Similarly for the magnetic field:
     H_ref = r_perp * H_perp + r_par * H_par
     return E_ref, H_ref, r_perp,r_par
 
