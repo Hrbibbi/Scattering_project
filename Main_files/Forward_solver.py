@@ -238,7 +238,6 @@ def Construct_solve_MAS_system(Scatter_information,Incident_information,Substrat
     con_time=time.time()
     RHS, r_perp, r_par = construct_RHS(Surface, propagation_vector, polarization, 
                                         incident_epsilon, substrate_epsilon, incident_mu, omega)
-    print(r_perp)
     # Construct the MAS matrix
     MAS_matrix,intDP1,intDP2,refDP1,refDP2,extDP1,extDP2 = construct_matrix(Surface, inneraux, outeraux, scatter_mu, 
                                   incident_epsilon, substrate_epsilon, scatter_epsilon, omega, 
@@ -287,14 +286,14 @@ def compute_scattered_field_at_point(points,int_coeff,InteriorDipoles,reflection
     return E_scat,H_scat
 
 
-Surface=C2.sphere(1,np.array([0,0,1]),50)
-inneraux=C2.sphere(0.8,np.array([0,0,1]),10)
-outeraux=C2.sphere(1.2,np.array([0,0,1]),10)
+Surface=C2.sphere(1,np.array([0,1,0]),20)
+inneraux=C2.sphere(0.8,np.array([0,1,0]),5)
+outeraux=C2.sphere(1.2,np.array([0,1,0]),5)
 scatter_epsilon=2
 mu=1
 Scatterinformation={'Surface': Surface,'inneraux': inneraux, 'outeraux': outeraux,'epsilon': scatter_epsilon,'mu': mu}
 
-propagation_vector=np.array([0,-1,0])
+propagation_vector=np.array([0,0,-1])
 polarization=0
 epsilon_air=1
 omega=1
@@ -302,7 +301,7 @@ Incidentinformation={'propagation_vector': propagation_vector, 'polarization': p
 
 Substrateinformation={'mu': mu,'epsilon': 10}
 int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles, reflection_coefficents=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,Substrateinformation)
-points=C2.sphere(1.5,np.array([0,0,1]),20).points
+points=C2.sphere(1.5,np.array([0,1,0]),20).points
 E,H=compute_scattered_field_at_point(points,int_coeff,InteriorDipoles,reflection_coefficents)
 
 fig = plt.figure(figsize=(18, 12))

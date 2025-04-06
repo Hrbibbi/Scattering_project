@@ -7,6 +7,7 @@ import numpy as np
 import warnings
 import multiprocessing
 from numba import jit
+import pandas as pd
 
 class Hertzian_Dipole():
     def __init__(self,position,direction,mu,epsilon,omega):
@@ -80,6 +81,7 @@ class Hertzian_Dipole():
         eta_air=np.sqrt(mu/epsilon_air)  
         direction=self.direction
         theta_inc = np.mod( np.arccos( np.dot( direction , nu ) ) , np.pi )
+        print(theta_inc)
         theta_trans=np.emath.arcsin(epsilon_substrate/epsilon_air*np.sin(theta_inc))
         #---------------------------------------------------------------
         #                       Calculate the fields
@@ -90,6 +92,7 @@ class Hertzian_Dipole():
         H_perp=np.cos(theta_inc)*H_inc
         E_par=np.sin(theta_inc)*E_inc
         H_par=np.sin(theta_inc)*H_inc
+
         #---------------------------------------------------------------
         #                reflection and transmission coeff
         #---------------------------------------------------------------
@@ -99,7 +102,8 @@ class Hertzian_Dipole():
         r_par=(eta_air*np.cos(theta_trans)-eta_substrate*np.cos(theta_inc) ) / ( eta_air*np.cos(theta_trans)+eta_substrate*np.cos(theta_inc) )
         E_ref = r_perp * E_perp + r_par * E_par
         H_ref = r_perp * H_perp + r_par * H_par
-        return E_ref, H_ref, r_perp,r_par
+        print(f"perpendicular_coefficent: {r_perp}, parallel_coefficent: {r_par}")
+        return E_ref, H_ref
 #--------------------------------------------------------------------------------
 #
 #
@@ -141,4 +145,43 @@ def evaluate_Hertzian_Dipoles_at_points_parallel(points, Dipoles):
         evaluations = pool.map(evaluate_dipole, [(dipole, points) for dipole in Dipoles])
     return evaluations
 
-        
+def compute_fields_from_csv(param_file, testpoints_file, output_file):
+    # Read parameters
+    param_df = pd.read_csv(param_file)
+    params = dict(zip(param_df["Parameter"], param_df["Value"]))
+
+    # Convert values properly
+    mu = float(params["mu"])
+    epsilon_air = float(params["epsilon_air"])
+    epsilon_substrate =float(params['epsilon_substrate'])
+    omega = float(params["omega"])
+    position = np.array([params["position_x"], params["position_y"], params["position_z"]])
+    direction = np.array([params["direction_x"], params["direction_y"], params["direction_z"]])
+
+    # Read test points
+    testpoints_df = pd.read_csv(testpoints_file)
+    testpoints = testpoints_df.to_numpy()  # Convert DataFrame to NumPy array
+
+    # Debugging: Check types
+    print(f"mu: {mu}, epsilon_air: {epsilon_air}, epsilon_substrate: {epsilon_substrate}, omega: {omega}")
+    print(f"Position: {position}, Direction: {direction}")
+    print(f"Testpoints shape: {testpoints.shape}")
+
+    # Compute fields (assuming Hertzian_Dipole is defined)
+    DP = Hertzian_Dipole(position, direction, mu, epsilon_substrate, omega) #wheter the reflected dipoles should be epsilon_air or substrate?
+    E,H=DP.compute_reflected_field_at_points(testpoints,mu,epsilon_substrate,epsilon_air)
+
+    # Convert complex values into real & imaginary parts for saving
+    data = {
+        "Ex_Re": E[:, 0].real, "Ex_Im": E[:, 0].imag,
+        "Ey_Re": E[:, 1].real, "Ey_Im": E[:, 1].imag,
+        "Ez_Re": E[:, 2].real, "Ez_Im": E[:, 2].imag,
+        "Hx_Re": H[:, 0].real, "Hx_Im": H[:, 0].imag,
+        "Hy_Re": H[:, 1].real, "Hy_Im": H[:, 1].imag,
+        "Hz_Re": H[:, 2].real, "Hz_Im": H[:, 2].imag,
+    }
+
+    output_df = pd.DataFrame(data)
+    output_df.to_csv(output_file, index=False)
+
+    print(f"Computed field data saved to {output_file}")

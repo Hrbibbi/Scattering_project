@@ -1,2 +1,0 @@
-construction time 7.7892165184021
-solution time 43.234484910964966
