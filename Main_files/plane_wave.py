@@ -54,6 +54,9 @@ class Plane_wave():
         H_par=np.column_stack( (np.zeros_like(x),np.ones_like(x),np.zeros_like(x)) )*exp_term[:,None]/eta
         E=np.cos(beta)*E_perp+np.sin(beta)*E_par
         H=np.cos(beta)*H_perp+np.sin(beta)*H_par
+        R_inv=R_z.T
+        E=(R_inv @ E.T).T
+        H=(R_inv @ H.T).T
         return E,H
 def get_reflected_field_at_points(points,PW,mu,epsilon_substrate,epsilon_air):
     #---------------------------------------------------------------
