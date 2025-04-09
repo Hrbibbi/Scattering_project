@@ -27,56 +27,50 @@ class Plane_wave():
         self.mu=mu
         self.omega=omega
 
-        if np.array_equal(self.propagation_vector,np.array([0,0,-1])):
-            self.rot_matrix=np.eye(3)
-        elif np.array_equal(self.propagation_vector,np.array([0,0,1])):
-            self.rot_matrix=np.array([
-                [1,0,0],
-                [0,-1,0],
-                [0,0,-1]
-            ])
-        else:
-            N=np.sqrt(self.propagation_vector[0]**2+self.propagation_vector[1]**2)
-            self.rot_matrix=-1*np.array([
-                [ self.propagation_vector[1]/N , self.propagation_vector[0]*self.propagation_vector[2]/N, self.propagation_vector[0]  ],
-                [ -self.propagation_vector[0]/N, self.propagation_vector[1]*self.propagation_vector[2]/N, self.propagation_vector[1]  ],
-                [         0           ,                 -N                   , self.propagation_vector[2]  ]
-            ])
-        self.rot_matrix_inv=np.linalg.inv(self.rot_matrix)
-    def evaluate_at_points(self,X):
-        #---------------------------------------------------------------------------
-        #                           Rotate points and precompute
-        #---------------------------------------------------------------------------
+    def evaluate_at_points(self, X):
+        kx, ky, kz = self.propagation_vector
+        phi = np.arctan2(-kx, -ky)
 
-        rotated_points=(self.rot_matrix_inv @ X.T).T
-        exponential_term=np.exp(1j*self.wavenumber*rotated_points[:,2])
-        eta=self.omega*self.mu/self.wavenumber
+        R_z = np.array([
+            [np.cos(phi),  np.sin(phi), 0],
+            [-np.sin(phi), np.cos(phi), 0],
+            [0,            0,           1]
+        ])
 
+        X_rot = (R_z @ X.T).T
+        k_rot = R_z @ self.propagation_vector
+        theta_i = np.arccos(np.dot([0, 0, -1], k_rot))
 
-        #---------------------------------------------------------------------------
-        #                           Electric field computation
-        #---------------------------------------------------------------------------
+        # Unit propagation vector (in rotated frame)
+        k_hat = np.array([np.sin(theta_i), 0, -np.cos(theta_i)])
 
-        Ex=np.sin(self.polarization)*exponential_term
-        Ey=np.cos(self.polarization)*exponential_term
-        Ez=np.zeros_like(Ex)
-        E=np.column_stack((Ex,Ey,Ez))
-        #---------------------------------------------------------------------------
-        #                           Magnetic field computation
-        #---------------------------------------------------------------------------
-        Hx=-np.cos(self.polarization)*exponential_term/eta
-        Hy=np.sin(self.polarization)*exponential_term/eta
-        Hz=np.zeros_like(Hx)
-        H=np.column_stack((Hx,Hy,Hz))
+        # Polarization decomposition
+        beta = self.polarization
+        e_perp = np.array([0, 1, 0])
+        e_par = np.cross(k_hat, e_perp)
+        e_par /= np.linalg.norm(e_par)
 
-        #---------------------------------------------------------------------------
-        #                           rotate fields back
-        #---------------------------------------------------------------------------
-        
-        E_rotated = (self.rot_matrix @ E.T).T
-        H_rotated = (self.rot_matrix @ H.T).T
-        return [E_rotated, H_rotated]
+        E_hat = np.cos(beta) * e_perp + np.sin(beta) * e_par
+        H_hat = np.cross(k_hat, E_hat)
 
+        # Wavenumber and impedance
+        k_mag = self.wavenumber
+        eta = np.sqrt(self.mu / (self.wavenumber**2 / self.omega**2 * self.mu))
+
+        # Dot product k ⋅ r for phase
+        phase = np.dot(X_rot, k_mag * k_hat)
+        exp_phase = np.exp(-1j * phase)
+
+        # Fields
+        E = E_hat * exp_phase[:, np.newaxis]
+        H = H_hat / eta * exp_phase[:, np.newaxis]
+
+        # Rotate fields back to original coordinates
+        R_z_inv = R_z.T
+        E_global = E @ R_z_inv
+        H_global = H @ R_z_inv
+
+        return E_global, H_global
 def get_reflected_field_at_points(points,PW,mu,epsilon_substrate,epsilon_air):
     #---------------------------------------------------------------
     #                     Calculate the angles
@@ -107,18 +101,14 @@ def get_reflected_field_at_points(points,PW,mu,epsilon_substrate,epsilon_air):
     H_ref = r_perp * H_perp + r_par * H_par
     return E_ref, H_ref, r_perp,r_par
 
-'''
+
 mu=1
 epsilon_air=1
 epsilon_substrate=11.6964
 omega=1
 polarization=0
-PW1=Plane_wave(np.array([0,-1,0]),polarization,epsilon_air,mu,omega)
-points=np.array([
-    [0,1,0],
-    [0,2,0],
-    [1,1,1]
-])
-E_ref,H_ref,r_perp,r_par=get_reflected_field_at_points(points,PW1,mu,epsilon_substrate,epsilon_air)
-print(E_ref)
-'''
+prop_vec=np.array([0, 1,-1])
+prop_vec=prop_vec/np.linalg.norm(prop_vec)
+PW1=Plane_wave(prop_vec,polarization,epsilon_air,mu,omega)
+print(PW1.evaluate_at_points(np.array([[1,0,1],
+                                 [0,1,0]])))
