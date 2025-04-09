@@ -26,51 +26,35 @@ class Plane_wave():
         self.wavenumber=omega*np.sqrt(epsilon*mu)
         self.mu=mu
         self.omega=omega
+        self.eta=np.sqrt(mu/epsilon)
 
-    def evaluate_at_points(self, X):
-        kx, ky, kz = self.propagation_vector
-        phi = np.arctan2(-kx, -ky)
+    def evaluate_at_points(self,X):
+        kx,ky,kz=self.propagation_vector
 
-        R_z = np.array([
-            [np.cos(phi),  np.sin(phi), 0],
-            [-np.sin(phi), np.cos(phi), 0],
-            [0,            0,           1]
-        ])
+        phi=np.arctan2(-kx,-ky)
+        
+        R_z=np.array([[np.cos(phi),np.sin(phi),0],
+                      [np.sin(phi),np.cos(phi),0],
+                      [   0       ,  0        ,1]])
+        rotated_points = (R_z @ X.T).T
+        
+        theta_i=np.arccos(np.dot(np.array([0,0,-1]),self.propagation_vector))
 
-        X_rot = (R_z @ X.T).T
-        k_rot = R_z @ self.propagation_vector
-        theta_i = np.arccos(np.dot([0, 0, -1], k_rot))
+        beta=self.polarization
+        eta=self.eta
 
-        # Unit propagation vector (in rotated frame)
-        k_hat = np.array([np.sin(theta_i), 0, -np.cos(theta_i)])
+        x,y,z=rotated_points[:,0],rotated_points[:,1],rotated_points[:,2]
 
-        # Polarization decomposition
-        beta = self.polarization
-        e_perp = np.array([0, 1, 0])
-        e_par = np.cross(k_hat, e_perp)
-        e_par /= np.linalg.norm(e_par)
-
-        E_hat = np.cos(beta) * e_perp + np.sin(beta) * e_par
-        H_hat = np.cross(k_hat, E_hat)
-
-        # Wavenumber and impedance
-        k_mag = self.wavenumber
-        eta = np.sqrt(self.mu / (self.wavenumber**2 / self.omega**2 * self.mu))
-
-        # Dot product k ⋅ r for phase
-        phase = np.dot(X_rot, k_mag * k_hat)
-        exp_phase = np.exp(-1j * phase)
-
-        # Fields
-        E = E_hat * exp_phase[:, np.newaxis]
-        H = H_hat / eta * exp_phase[:, np.newaxis]
-
-        # Rotate fields back to original coordinates
-        R_z_inv = R_z.T
-        E_global = E @ R_z_inv
-        H_global = H @ R_z_inv
-
-        return E_global, H_global
+        exp_term=np.exp( -1j*self.wavenumber*(x*np.sin(theta_i))+z*np.cos(theta_i))
+        
+        E_perp=np.column_stack( (np.zeros_like(x),np.ones_like(x),np.zeros_like(x)) )*exp_term[:,None]
+        H_perp=np.column_stack( (-np.cos(theta_i)*np.ones_like(x) ,np.zeros_like(x) ,np.sin(theta_i)*np.ones_like(x) ))*exp_term[:,None]/eta
+        
+        E_par=np.column_stack( (np.cos(theta_i)*np.ones_like(x) ,np.zeros_like(x) ,-np.sin(theta_i)*np.ones_like(x) ))*exp_term[:,None]
+        H_par=np.column_stack( (np.zeros_like(x),np.ones_like(x),np.zeros_like(x)) )*exp_term[:,None]/eta
+        E=np.cos(beta)*E_perp+np.sin(beta)*E_par
+        H=np.cos(beta)*H_perp+np.sin(beta)*H_par
+        return E,H
 def get_reflected_field_at_points(points,PW,mu,epsilon_substrate,epsilon_air):
     #---------------------------------------------------------------
     #                     Calculate the angles
@@ -110,5 +94,5 @@ polarization=0
 prop_vec=np.array([0, 1,-1])
 prop_vec=prop_vec/np.linalg.norm(prop_vec)
 PW1=Plane_wave(prop_vec,polarization,epsilon_air,mu,omega)
-print(PW1.evaluate_at_points(np.array([[1,0,1],
-                                 [0,1,0]])))
+testpotins=np.random.rand(100,3)
+PW1.evaluate_at_points(testpotins)
