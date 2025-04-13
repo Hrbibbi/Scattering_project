@@ -1,6 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
+from mpl_toolkits.mplot3d import Axes3D
+
 class C2_surface:
     def __init__(self,points,normals,tau1,tau2):
         self.points=points
@@ -9,52 +14,182 @@ class C2_surface:
         self.tau2=tau2
         self.M=np.shape(self.points)[0]
 
-    def construct_conformal_surface(self,radius):
-        points=radius*self.points
-        return C2_surface(points,self.normals,self.tau1,self.tau2)
-    
-    def plot_surface(self):
-        x, y, z = self.points[:, 0], self.points[:, 1], self.points[:, 2]
-        fig = plt.figure(figsize=(8, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(x, y, z, c='c', marker='o', alpha=0.6)  # 3D scatter plot
-
-        # Set labels and title
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.set_title('Scatter Plot of Surface Points')
-        return ax
-    
-    def plot_tangents(self, scale=0.1):
-        """Plots the tangent vectors tau1 and tau2 at each surface point."""
-        fig = plt.figure(figsize=(8, 8))
+    def plot_tangents(self, scale=1):
+        """Plots the surface as a solid and overlays tangent vectors tau1, tau2, and normal vectors."""
+        fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
 
-        # Scatter plot of the points
-        ax.scatter(self.points[:, 0], self.points[:, 1], self.points[:, 2], c='c', marker='o', alpha=0.6, label="Surface Points")
+        N = int(np.sqrt(self.points.shape[0]))  # Assuming the points are N x N grid
+        X = self.points[:, 0].reshape((N, N))
+        Y = self.points[:, 1].reshape((N, N))
+        Z = self.points[:, 2].reshape((N, N))
 
-        # Plot tangent vectors
-        for i in range(self.M):
+        # Plot the surface
+        ax.plot_surface(X, Y, Z, cmap='viridis', alpha=0.6, edgecolor='none')
+
+        # Plot tangent vectors (tau1 and tau2)
+        for i in range(self.points.shape[0]):
             p = self.points[i]
             t1 = self.tau1[i] * scale
             t2 = self.tau2[i] * scale
+            normal = self.normals[i] * scale
+            # Tangent vector tau1
+            ax.quiver(p[0], p[1], p[2], t1[0], t1[1], t1[2], color='r', length=np.linalg.norm(t1), normalize=True, linewidth=1)
+            # Tangent vector tau2
+            ax.quiver(p[0], p[1], p[2], t2[0], t2[1], t2[2], color='b', length=np.linalg.norm(t2), normalize=True, linewidth=1)
 
-            # Quiver (arrow) for tau1
-            ax.quiver(p[0], p[1], p[2], t1[0], t1[1], t1[2], color='r', length=np.linalg.norm(t1), normalize=True, label="Tau1" if i == 0 else "")
-            # Quiver (arrow) for tau2
-            ax.quiver(p[0], p[1], p[2], t2[0], t2[1], t2[2], color='b', length=np.linalg.norm(t2), normalize=True, label="Tau2" if i == 0 else "")
+            # Normal vector (calculated as cross product of tau1 and tau2)
+            ax.quiver(p[0], p[1], p[2], normal[0], normal[1], normal[2], color='g', length=scale, normalize=True, linewidth=2)
 
-        # Set labels and title
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
-        ax.set_title('Tangent Vectors on Surface')
+        ax.set_title('Surface with Tangent and Normal Vectors')
 
-        # Legend
-        ax.legend()
+        plt.tight_layout()
         plt.show()
 
+def compute_geometric_data(x,y,z,h):
+    '''
+    We start by assuming that x,y,z are all 2d arrays for ease of computation
+    we also assume that x,y is sampled from the same so h=max(x[1,0]-x[0,0]
+    '''
+    f_y,f_x=np.gradient(z,h,h)
+    f_yx,f_xx=np.gradient(f_x,h,h)
+    f_yy,f_xy=np.gradient(f_y,h,h)
+    x,y,z=x.ravel(),y.ravel(),z.ravel()
+    point_cloud=np.column_stack((x,y,z))
+    tau1=np.column_stack( (np.ones_like(x),np.zeros_like(x),f_x.ravel()) )
+    tau2=np.column_stack( (np.zeros_like(x),np.ones_like(x),f_y.ravel()) )
+    
+    numerator=(1+f_x**2)*f_yy-2*f_x*f_y*f_xy+(1+f_y**2)*f_xx
+    denom=(1+f_x**2+f_y**2)**(3/2)
+    mean_curvature=np.abs(numerator/denom)
+    mean_curvature=mean_curvature.ravel()
+    
+    normals=np.cross(tau1,tau2)
+    tau2=np.cross(tau1,normals)
+    tau1=tau1 / np.linalg.norm(tau1,axis=1,keepdims=True)
+    tau2=tau2 / np.linalg.norm(tau2,axis=1,keepdims=True)
+    normals=normals / np.linalg.norm(normals,axis=1,keepdims=True)
+    
+    return point_cloud,tau1,tau2,normals,mean_curvature
+
+def generate_curvature_scaled_offset(points, normals, mean_curvature,scaling):
+    safe_c = scaling/np.max(mean_curvature)
+    offset_points = points + safe_c * normals
+    return offset_points
+
+def take_5_points_per_WL(surface, a, b, N):
+    """
+    Returns a downsampled SurfaceSubset object from the original surface.
+
+    Parameters:
+        surface: object with .points, .normals, .tau1, .tau2 as (N^2)x3 arrays
+        a, b: spatial bounds
+        N: int, original resolution (N x N grid)
+
+    Returns:
+        SurfaceSubset instance with downsampled (M)x3 arrays
+    """
+    stepsize = int(np.ceil(N / (5 * (b - a))))
+    fraction=N / (5*(b-a))
+    print(f"fraction {fraction}")
+    def downsample(arr):
+        grid = arr.reshape(N, N, 3)
+        sampled = grid[::stepsize, ::stepsize, :]
+        return sampled.reshape(-1, 3)
+
+    return C2_surface(
+        downsample(surface.points),
+        downsample(surface.normals),
+        downsample(surface.tau1),
+        downsample(surface.tau2)
+    )
+
+def plot_surface_with_offset(original_points, offset_points, N):
+    """
+    Plots both the original surface and the offset surface in the same 3D plot.
+    
+    Args:
+        original_points (Nx3 array): The original surface points.
+        offset_points (Nx3 array): The offset surface points (same shape).
+        N (int): Grid resolution (assumes square N x N grid).
+    """
+    X_orig = original_points[:, 0].reshape((N, N))
+    Y_orig = original_points[:, 1].reshape((N, N))
+    Z_orig = original_points[:, 2].reshape((N, N))
+
+    X_off = offset_points[:, 0].reshape((N, N))
+    Y_off = offset_points[:, 1].reshape((N, N))
+    Z_off = offset_points[:, 2].reshape((N, N))
+
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Plot original surface
+    surf_orig = ax.plot_surface(X_orig, Y_orig, Z_orig, cmap='viridis', alpha=0.8)
+    # Plot offset surface
+    surf_off = ax.plot_surface(X_off, Y_off, Z_off, cmap='plasma', alpha=0.6)
+
+    # Create proxy handles for the legend
+    legend_orig = mlines.Line2D([], [], color='yellow', label='Original Surface')
+    legend_off = mlines.Line2D([], [], color='red', label='Offset Surface')
+
+    # Add legend manually
+    ax.legend(handles=[legend_orig, legend_off])
+
+    ax.set_title("Original and Offset Surfaces")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+
+    plt.tight_layout()
+    plt.show()
+
+
+def generate_plane_xy(height,a,b,numpoints):
+    x0,y0=np.linspace(a,b,numpoints),np.linspace(a,b,numpoints)
+    x,y=np.meshgrid(x0,y0)
+    x,y=x.ravel(),y.ravel()
+    points=np.column_stack( (x,y,height*np.ones_like(x)) )
+    normals=np.zeros_like(points)
+    normals[:,2]=1
+    tau1=normals
+    tau2=normals
+    return C2_surface(points,normals,tau1,tau2)
+
+
+def cylinder(radius,height,num_points):
+    r=radius
+    theta0=np.linspace(0,2*np.pi,num_points)
+    y0=np.linspace(0,height,num_points)
+    theta,y=np.meshgrid(theta0,y0)
+    x=r*np.cos(theta)
+    z=r*np.sin(theta)
+    points=np.column_stack((x.ravel(),y.ravel(),z.ravel()))
+    normals=np.column_stack( ( x.ravel()/r, np.zeros_like( y.ravel() ), z.ravel()/r ) )
+    tau1=np.zeros_like(points)
+    tau1[:,0],tau1[:,2]=-np.sin(theta.ravel()),np.cos(theta.ravel())
+    tau2=np.zeros_like(points)
+    tau2[:,1]=1
+
+    return C2_surface(points,normals,tau1,tau2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
 def sphere(radius,center,num_points):
     r=radius
     x0,y0,z0=center
@@ -81,21 +216,6 @@ def sphere(radius,center,num_points):
     tau2=tau2 / np.linalg.norm(tau2,axis=1,keepdims=True)
     return C2_surface(points,normals,tau1,tau2)
 
-def cylinder(radius,height,num_points):
-    r=radius
-    theta0=np.linspace(0,2*np.pi,num_points+1)[:-1]
-    z0=np.linspace(0,height,num_points)
-    theta,z=np.meshgrid(theta0,z0)
-    x=r*np.cos(theta)
-    y=r*np.sin(theta)
-    points=np.column_stack((x.ravel(),y.ravel(),z.ravel()))
-    normals=np.column_stack( ( x.ravel()/r ,y.ravel()/r , np.zeros_like( x.ravel() ) ) )
-    tau1=np.zeros_like(points)
-    tau1[:,0],tau1[:,1]=-np.sin(theta.ravel()),np.cos(theta.ravel())
-    tau2=np.zeros_like(points)
-    tau2[:,2]=1
-
-    return C2_surface(points,normals,tau1,tau2)
 
 def inverted_parabola(numpoints):
     r0=np.linspace(0,1,numpoints+1)[1:]
@@ -162,3 +282,4 @@ def nipples(centers, radii, heights, grid_length, length_number, grid_width, wid
     tau2 /= np.linalg.norm(tau2, axis=1)[:, np.newaxis]
 
     return C2_surface(points, normals, tau1, tau2)
+'''

@@ -31,31 +31,29 @@ class Plane_wave():
         self.eta=np.sqrt(mu/epsilon)
 
     def evaluate_at_points(self,X):
-        kx,ky,kz=self.propagation_vector
+        k=self.propagation_vector
+        kxy=-k[:2]
+        phi=np.arctan2(kxy[1],kxy[0])
+        R_z=np.array([
+            [np.cos(phi),-np.sin(phi),0],
+            [np.sin(phi),np.cos(phi), 0],
+            [0,0,1]
+        ])
+        k_rot= R_z@k
+        X_rot=(R_z @ X.T).T
+        x,y,z=X_rot[:,0],X_rot[:,1],X_rot[:,2]
+        theta=np.arccos(-k_rot[2])
 
-        phi=np.arctan2(-kx,-ky)
-        
-        R_z=np.array([[np.cos(phi),np.sin(phi),0],
-                      [np.sin(phi),np.cos(phi),0],
-                      [   0       ,  0        ,1]])
-        rotated_points = (R_z @ X.T).T
-        
-        theta_i=np.arccos(np.dot(np.array([0,0,-1]),self.propagation_vector))
+        exp_term=np.exp( -1j*self.wavenumber* ( x*np.sin(theta)-z*np.cos(theta) ) )
+        oner,zoer=np.ones_like(x),np.zeros_like(x)
 
-        beta=self.polarization
-        eta=self.eta
+        E_perp=np.column_stack( (zoer,oner*exp_term,zoer) )
+        E_par =np.column_stack( (-oner*np.cos(theta)*exp_term,zoer,-oner*np.sin(theta)*exp_term) )
 
-        x,y,z=rotated_points[:,0],rotated_points[:,1],rotated_points[:,2]
-
-        exp_term=np.exp( -1j*self.wavenumber*(x*np.sin(theta_i))+z*np.cos(theta_i))
-        
-        E_perp=np.column_stack( (np.zeros_like(x),np.ones_like(x),np.zeros_like(x)) )*exp_term[:,None]
-        H_perp=np.column_stack( (-np.cos(theta_i)*np.ones_like(x) ,np.zeros_like(x) ,np.sin(theta_i)*np.ones_like(x) ))*exp_term[:,None]/eta
-        
-        E_par=np.column_stack( (np.cos(theta_i)*np.ones_like(x) ,np.zeros_like(x) ,-np.sin(theta_i)*np.ones_like(x) ))*exp_term[:,None]
-        H_par=np.column_stack( (np.zeros_like(x),np.ones_like(x),np.zeros_like(x)) )*exp_term[:,None]/eta
-        E=np.cos(beta)*E_perp+np.sin(beta)*E_par
-        H=np.cos(beta)*H_perp+np.sin(beta)*H_par
+        H_perp=np.column_stack( (-oner*np.cos(theta)*exp_term,zoer,-oner*np.sin(theta)*exp_term) )/self.eta
+        H_par =np.column_stack( (zoer,oner*exp_term,zoer))/self.eta
+        E=np.cos(self.polarization)*E_perp+np.sin(self.polarization)*E_par
+        H=np.cos(self.polarization)*H_perp+np.sin(self.polarization)*H_par
         R_inv=R_z.T
         E=(R_inv @ E.T).T
         H=(R_inv @ H.T).T
