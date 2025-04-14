@@ -34,7 +34,6 @@ class Hertzian_Dipole():
         self.epsilon=epsilon
         self.omega=omega
         self.wavenumber=omega*np.sqrt(epsilon*mu)
-
         #vector values
         self.position = position
         self.direction = direction
@@ -42,31 +41,34 @@ class Hertzian_Dipole():
     # Methods
     #--------------------------------------------------------------------------------
     def evaluate_at_points(self,X):
-        #precomputes
-        p=X-self.position
-        r=np.sqrt(np.sum(p**2,axis=1))
-        exponential_term=np.exp(-1j*self.wavenumber*r)
-        k=self.wavenumber
-        x,y,z=p[:,0],p[:,1],p[:,2]
-        dx,dy,dz=self.direction
-        omega=self.omega
         mu=self.mu
-
-        front_term1=-1j*omega*mu/(4*np.pi*r)*exponential_term
-        front_term2=exponential_term/(4*np.pi*omega*self.epsilon*r**5)
-        term1=1j*k**2*r**2+3*k*r-3j
-        term2=1j-k*r
-        E_x=front_term1*dx+front_term2*( x**2*dx*term1+x*(y*dy+z*dz)*term1+r**2*dx*term2 )
-        E_y=front_term1*dy+front_term2*( y**2*dy*term1+y*(x*dx+z*dz)*term1+r**2*dy*term2 )
-        E_z=front_term1*dz+front_term2*( z**2*dz*term1+z*(x*dx+y*dy)*term1+r**2*dz*term2 )
-        E=np.column_stack((E_x,E_y,E_z))
+        epsilon=self.epsilon
+        k=self.wavenumber
+        dx,dy,dz=self.direction[0],self.direction[1],self.direction[2]
+        omega=self.omega
+        xi=1j*omega*mu / (4*np.pi)
         
-        term3=exponential_term*(1+1j*k*r)/(4*np.pi*r**3)
-        H_x=-(y*dz-z*dy)*term3
-        H_y=(x*dz-z*dx)*term3
-        H_z=-(x*dy-y*dx)*term3
-        H=np.column_stack((H_x,H_y,H_z))
-        return [E,H]        
+        X_trans=X-self.position
+        x,y,z=X_trans[:,0],X_trans[:,1],X_trans[:,2]
+        r=np.sqrt(np.sum(X_trans**2,axis=1))
+        dotted=dx*x+dy*y+dz*z
+
+        R=1/(r**3)+1j*k/(r**2)
+        Phi = lambda p: 3*p/(r**5)+3j*k*p/(r**4)-k**2*p/(r**3)
+        phase=np.exp(-1j*k*r)
+        
+        E_x = ( dx*(xi/(k**2)*R-xi/r) - xi/(k**2)*Phi(x)*dotted ) * phase
+        E_y = ( dy*(xi/(k**2)*R-xi/r) - xi/(k**2)*Phi(y)*dotted ) * phase
+        E_z = ( dz*(xi/(k**2)*R-xi/r) - xi/(k**2)*Phi(z)*dotted ) * phase
+
+        E=np.column_stack( (E_x,E_y,E_z) )
+
+        H_x = 1/(4*np.pi)*(dy-dz)*R*phase
+        H_y = 1/(4*np.pi)*(dz-dx)*R*phase
+        H_z = 1/(4*np.pi)*(dx-dy)*R*phase
+
+        H=np.column_stack( (H_x,H_y,H_z) )
+        return E,H       
     
 
 import ast  # For safely evaluating string representations of lists

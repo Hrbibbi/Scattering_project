@@ -168,3 +168,8 @@ if False:
     #               Compare Results
     # -----------------------------------------------
     compare_csv_files("A_simple.csv", "PN_simple.csv")
+
+
+import HD_comparison as HD
+DP1=HD.Hertzian_Dipole(np.array([0,0,0]),np.array([0,0,1]),1,1,1)
+HD.compute_fields_from_csv("dipole_params_random.csv", "dipole_testpoints_random.csv", "A_random.csv")
