@@ -130,9 +130,9 @@ class Hertzian_Dipole():
         # Magnetic field components
         # Here we use the original approximate formulation; note that they only depend on dipole geometry.
         factor = 1/(4*np.pi)
-        H_x = factor * ((dy - dz) * R) * phase
-        H_y = factor * ((dz - dx) * R) * phase
-        H_z = factor * ((dx - dy) * R) * phase
+        H_x = factor * ((dy*z - dz*y) * R) * phase
+        H_y = factor * ((dz*x - dx*z) * R) * phase
+        H_z = factor * ((dx*y - dy*z) * R) * phase
         
         # Stack the magnetic components; shape (M, N, 3)
         H = np.stack((H_x, H_y, H_z), axis=2)
@@ -144,13 +144,8 @@ class Hertzian_Dipole():
 
         return fields
     
-
-positions=np.array([[0,0,0],
-                    [0,0,1]])
-directions=np.array([[0,0,1],
-                     [0,0,1]])
-HDP1=Hertzian_Dipole(positions,directions,1,1,1)
-
-testpoints=np.array([[0,0,2]])
-E,H=HDP1.evaluate_at_points(testpoints)
-print(E)
+DP1=Hertzian_Dipole(np.array([[0,0,0]]),np.array([[0,0,1]]),1,1,1)
+testpoints=np.array([[1,0,0],[0,1,0],[0,0,1]])
+E,H=DP1.evaluate_at_points(testpoints)
+print(E[0,:,:])
+print(H[0,:,:])

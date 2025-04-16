@@ -234,12 +234,12 @@ def Construct_solve_MAS_system(Scatter_information,Incident_information,plot=Fal
         plt.colorbar(im0, ax=axs[0])
         
         # 2. RHS vector plot
-        axs[1].plot(np.abs(RHS))
+        axs[1].plot(np.abs(RHS),'.')
         axs[1].set_title('abs(RHS vector)')
         axs[1].set_xlabel('Index')
         
         # 3. Solution vector C plot
-        axs[2].plot(np.abs(C))
+        axs[2].plot(np.abs(C),'.')
         axs[2].set_title('abs(Solution vector C)')
         axs[2].set_xlabel('Index')
 
@@ -321,13 +321,13 @@ def test_instance():
     Scatterinformation={'Surface': Surface,'inneraux': inneraux, 'outeraux': outeraux,'epsilon': scatter_epsilon,'mu': mu}
 
     propagation_vector=np.array([0,0,-1])
-    polarization=0
+    polarization=np.pi/2
     epsilon_air=1
     omega=1
     Incidentinformation={'propagation_vector': propagation_vector, 'polarization': polarization, 'epsilon': epsilon_air, 'mu': mu, 'omega':omega}
     int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,True)
-    Plane=C2.generate_plane_xy(100,a,b,20)
-    print(compute_flux_integral_scattered_field(Plane,InteriorDipoles,int_coeff))
+    #Plane=C2.generate_plane_xy(100,a,b,20)
+    #print(compute_flux_integral_scattered_field(Plane,InteriorDipoles,int_coeff))
 
 def bump_test():
     f = lambda x,y,x0,y0,height,sigma: height * np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2))

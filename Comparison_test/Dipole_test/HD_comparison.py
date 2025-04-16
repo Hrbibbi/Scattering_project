@@ -63,9 +63,9 @@ class Hertzian_Dipole():
 
         E=np.column_stack( (E_x,E_y,E_z) )
 
-        H_x = 1/(4*np.pi)*(dy-dz)*R*phase
-        H_y = 1/(4*np.pi)*(dz-dx)*R*phase
-        H_z = 1/(4*np.pi)*(dx-dy)*R*phase
+        H_x = 1/(4*np.pi)*(dy*z-dz*y)*R*phase
+        H_y = -1/(4*np.pi)*(dx*z-dz*x)*R*phase
+        H_z = 1/(4*np.pi)*(dx*y-dy*x)*R*phase
 
         H=np.column_stack( (H_x,H_y,H_z) )
         return E,H       
