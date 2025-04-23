@@ -50,8 +50,8 @@ class Plane_wave:
             phi = np.arctan2(-k[1], -k[0])
 
             R_z = np.array([
-                [np.cos(phi), -np.sin(phi), 0],
-                [np.sin(phi),  np.cos(phi), 0],
+                [np.cos(phi), np.sin(phi), 0],
+                [-np.sin(phi),  np.cos(phi), 0],
                 [0,            0,           1]
             ])
 

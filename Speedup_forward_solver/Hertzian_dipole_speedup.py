@@ -143,9 +143,3 @@ class Hertzian_Dipole():
         fields[1, :, :, :] = H
 
         return fields
-    
-DP1=Hertzian_Dipole(np.array([[0,0,0]]),np.array([[0,0,1]]),1,1,1)
-testpoints=np.array([[1,0,0],[0,1,0],[0,0,1]])
-E,H=DP1.evaluate_at_points(testpoints)
-print(E[0,:,:])
-print(H[0,:,:])
