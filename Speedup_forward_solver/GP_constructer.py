@@ -178,7 +178,6 @@ def generate_C2_surfaces_with_offsets(
 
     return results
 
-test=generate_C2_surfaces_with_offsets(a=-1,b=1,N=70,n_instances=1000)
-print(len(test))
-#plot_matern_gp_realizations(-10,10,50,3,1,0.1,42,use_cholesky=True)
-
+#test=generate_C2_surfaces_with_offsets(a=-1,b=1,N=70,n_instances=1000)
+#print(len(test))
+plot_matern_gp_realizations(-1,1,50,use_cholesky=True)

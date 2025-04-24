@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
-
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 def construct_RHSs(Surface, propagation_vectors, polarizations, epsilon_air, mu, omegas):
     '''
@@ -293,119 +293,83 @@ def compute_flux_integral_scattered_field(plane, dipoles, coefficients):
     print(f"integration_time: {time.time()-int_start}")
     return integrals  # Return real-valued power flux
 
+#This does not work as it should as it should or at least it introduces a lot of overhead
+def _forward_solve_one_block(Scatter_information, Incidentinformation, Plane, show_MAS):
+    """Worker function to solve one incident block."""
+    # Use local functions, not re-imports
+    int_coeffs, _, InteriorDipoles, _ = Construct_solve_MAS_system(
+        Scatter_information, Incidentinformation, plot=show_MAS
+    )
+
+    power_int = compute_flux_integral_scattered_field(Plane, InteriorDipoles, int_coeffs)
+
+    props = Incidentinformation['propagation_vectors']
+    pols = Incidentinformation['polarizations']
+    omega = Incidentinformation['omega']
+    lam = Incidentinformation.get('lambda', 2 * np.pi / omega)
+    freq = omega / (2 * np.pi)
+
+    return [
+        {
+            'propagation_vector': props[j],
+            'polarization': pols[j],
+            'wavelength': lam,
+            'frequency': freq,
+            'power_integral': power_int[j]
+        }
+        for j in range(props.shape[0])
+    ]
+
 def Forward_solver(Scatter_information, Incident_informations, options):
     """
-    Solves the forward problem for a specified scatterer and multiple sets of incident waves.
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        Columns: propagation_vector, polarization, wavelength, frequency, power_integral
+    Parallel forward solver using dynamic scheduling.
     """
+    import C2_surface as C2
+
     # Unpack options (with defaults)
-    show_MAS         = options.get('show_MAS', False)
+    show_MAS = options.get('show_MAS', False)
     show_power_curve = options.get('Show_power_curve', False)
-    plane_z          = options.get('plane_location', None)
+    plane_z = options.get('plane_location', None)
 
-    # Extract geometry & domain
-    Surface  = Scatter_information['Surface']
-    pts      = Surface.points
-    M_total  = pts.shape[0]
-    N_grid   = int(np.sqrt(M_total))     # assume N×N grid
-    a, b     = pts[:,0].min(), pts[:,0].max()
+    # Get surface bounds and resolution
+    Surface = Scatter_information['Surface']
+    pts = Surface.points
+    M_total = pts.shape[0]
+    N_grid = int(np.sqrt(M_total))
+    a, b = pts[:, 0].min(), pts[:, 0].max()
 
-    # default plane height = 5× max z if not specified
     if plane_z is None:
-        plane_z = 5 * pts[:,2].max()
+        plane_z = 5 * pts[:, 2].max()
 
-    # Build the evaluation plane *once*
+    # Generate plane once
     Plane = C2.generate_plane_xy(plane_z, a, b, N_grid)
 
-    # Accumulate results here
-    records = []
+    all_records = []
 
-    for inc in Incident_informations:
-        # Solve MAS for this block of plane waves
-        int_coeffs, _, InteriorDipoles, _ = Construct_solve_MAS_system(
-            Scatter_information,
-            inc,
-            plot=show_MAS
-        )
+    with ProcessPoolExecutor() as executor:
+        futures = {
+            executor.submit(_forward_solve_one_block, Scatter_information, inc, Plane, show_MAS): i
+            for i, inc in enumerate(Incident_informations)
+        }
 
-        # Compute power integrals (reuse same Plane)
-        power_int = compute_flux_integral_scattered_field(
-            Plane,
-            InteriorDipoles,
-            int_coeffs
-        )  # shape (M_block,)
+        for future in as_completed(futures):
+            block_records = future.result()
+            all_records.extend(block_records)
 
-        # Incident metadata
-        props = inc['propagation_vectors']  # (M_block,3)
-        pols  = inc['polarizations']        # (M_block,)
-        omega = inc['omega']
-        lam   = inc['lambda']
-        freq  = omega / (2*np.pi)
+            if show_power_curve:
+                powers = [abs(r['power_integral']) for r in block_records]
+                plt.plot(powers, marker='o')
+                plt.xlabel('Incident index')
+                plt.ylabel('Power integral')
+                plt.title('Scattered Power vs. Incident Wave (block)')
+                plt.tight_layout()
+                plt.show()
 
-        # Record one row per wave
-        for j in range(props.shape[0]):
-            records.append({
-                'propagation_vector': props[j],
-                'polarization'      : pols[j],
-                'wavelength'        : lam,
-                'frequency'         : freq,
-                'power_integral'    : power_int[j]
-            })
+    df = pd.DataFrame.from_records(all_records,
+        columns=['propagation_vector', 'polarization', 'wavelength', 'frequency', 'power_integral'])
 
-        # Optional plotting of this block’s power curve
-        if show_power_curve:
-            plt.figure()
-            plt.plot(np.abs(power_int), marker='o')
-            plt.xlabel('Incident index')
-            plt.ylabel('Power integral')
-            plt.title('Scattered Power vs. Incident Wave')
-            plt.tight_layout()
-            plt.show()
-
-    # Build DataFrame and return
-    df = pd.DataFrame.from_records(records,
-        columns=['propagation_vector','polarization','wavelength','frequency','power_integral'])
     return df
 
-def average_forward_response(Scattering_Informations, Incident_Informations, options):
-    """
-    Averages the power integral from forward solves across multiple surface realizations.
-
-    Parameters
-    ----------
-    Scattering_Informations : list of dict
-        Each dict describes one surface realization + its physical parameters.
-    Incident_Informations : list of dict
-        Each dict contains incident wave configurations. All are used for each surface.
-    options : dict
-        Dictionary of options to pass to Forward_solver (e.g., show_MAS, plane_location, Show_power_curve).
-
-    Returns
-    -------
-    avg_power : np.ndarray
-        The average power integral across surface realizations.
-    all_power_curves : list of np.ndarray
-        The power integral arrays for each realization (for optional plotting).
-    """
-    assert len(Scattering_Informations) > 0, "Need at least one surface realization"
-    assert isinstance(Incident_Informations, list) and len(Incident_Informations) > 0, "Incident_Informations must be a non-empty list"
-
-    all_power_curves = []
-
-    for i, scatter_info in enumerate(Scattering_Informations):
-        print(f"Solving realization {i+1}/{len(Scattering_Informations)}")
-        df = Forward_solver(scatter_info, Incident_Informations, options)
-        power_curve = np.array(df['power_integral'].values)
-        all_power_curves.append(power_curve)
-
-    # Stack and compute mean over realizations
-    all_power_array = np.stack(all_power_curves, axis=0)  # shape (n_realizations, n_incidents_total)
-    avg_power = np.mean(all_power_array, axis=0)          # shape (n_incidents_total,)
-    return avg_power, all_power_curves
 
 
 def test_instance():
@@ -482,16 +446,13 @@ def bump_test(width=1,resol=20):
     wavelength=325e-3
     omega=2*np.pi/wavelength
     Incidentinformation1={'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu,'lambda': wavelength, 'omega':omega}
-    Incidentinformation2={'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu,'lambda': 325e-5, 'omega': 2*np.pi/325e-5}
+    #Incidentinformation2={'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu,'lambda': 325e-5, 'omega': 2*np.pi/325e-5}
     options = {
     'show_MAS'         : False,
     'plane_location'   : None,   # auto = 5×max height
     'Show_power_curve' : False
     }
-    #solution_time=time.time()
-    avg_power, all_power_curves=average_forward_response([Scatterinformation]*3,[Incidentinformation1],options)
-    for i in range(len(all_power_curves)):
-        plt.plot(all_power_curves[i])
-    plt.show()
-    #print(f"solution time {time.time()-solution_time}")
+    solution_time=time.time()
+    df=Forward_solver(Scatterinformation,[Incidentinformation1]*80,options=options)
+    print(f"solution time {time.time()-solution_time}")
 bump_test()
