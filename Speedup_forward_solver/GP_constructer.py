@@ -4,6 +4,7 @@ from numpy.random import default_rng
 import matplotlib.pyplot as plt
 import time
 from scipy.linalg import cholesky
+import C2_surface as C2
 
 def generate_matern_surface(
     x: np.ndarray,
@@ -122,4 +123,62 @@ def plot_matern_gp_realizations(
     fig.suptitle('Matérn GP Surface Samples', fontsize=16)
     plt.show()
 
-plot_matern_gp_realizations(-10,10,50,3,1,0.1,42,use_cholesky=True)
+def generate_C2_surfaces_with_offsets(
+    a: float,
+    b: float,
+    N: int,
+    length_scale: float = 1.0,
+    nu: float = 1.5,
+    sigma_f: float = 1.0,
+    n_instances: int = 1,
+    seed: int = 42
+) -> list[tuple[C2.C2_surface, C2.C2_surface, C2.C2_surface]]:
+    """
+    Generate multiple C2_surface objects from Gaussian process samples with Matérn kernel,
+    including inner and outer offset surfaces scaled by curvature.
+
+    Returns
+    -------
+    List of tuples: (surface, inner_surface, outer_surface)
+    """
+    # 1D grid
+    x = np.linspace(a, b, N)
+    y = np.linspace(a, b, N)
+    h = (b - a) / (N - 1)
+
+    # Generate GP samples
+    X, Y, Z_all = generate_matern_surface(
+        x, y,
+        length_scale=length_scale,
+        nu=nu,
+        sigma_f=sigma_f,
+        n_samples=n_instances,
+        random_state=seed,
+        use_cholesky=True
+    )
+
+    results = []
+
+    for i in range(n_instances):
+        Z = Z_all if n_instances == 1 else Z_all[i]
+
+        # Geometric data
+        point_cloud, tau1, tau2, normals, mean_curvature = C2.compute_geometric_data(X, Y, Z, h)
+        # Main surface
+        surface = C2.C2_surface(points=point_cloud, normals=normals, tau1=tau1, tau2=tau2)
+
+        # Offset points (inner and outer)
+        inner_points = C2.generate_curvature_scaled_offset(point_cloud, normals, mean_curvature, scaling=-0.86)
+        outer_points = C2.generate_curvature_scaled_offset(point_cloud, normals, mean_curvature, scaling=0.86)
+
+        inner_surface = C2.C2_surface(points=inner_points, normals=normals, tau1=tau1, tau2=tau2)
+        outer_surface = C2.C2_surface(points=outer_points, normals=normals, tau1=tau1, tau2=tau2)
+
+        results.append((surface, inner_surface, outer_surface))
+
+    return results
+
+test=generate_C2_surfaces_with_offsets(a=-1,b=1,N=70,n_instances=1000)
+print(len(test))
+#plot_matern_gp_realizations(-10,10,50,3,1,0.1,42,use_cholesky=True)
+

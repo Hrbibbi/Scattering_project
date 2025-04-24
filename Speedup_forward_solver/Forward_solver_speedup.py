@@ -5,6 +5,7 @@ import Hertzian_dipole_speedup as HD
 import C2_surface as C2
 import plane_wave_speedup as PW
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import time
 
@@ -54,7 +55,6 @@ def construct_RHSs(Surface, propagation_vectors, polarizations, epsilon_air, mu,
     rhs_matrix = rhs_matrix.reshape(len(propagation_vectors), 4*N).T  # (4*N, M)
 
     return rhs_matrix
-
 
 def construct_sub_column(dipoles, Surface):
     '''
@@ -258,9 +258,6 @@ def compute_scattered_field_at_point(points, int_coeff, InteriorDipoles):
     total_fields = field1 + field2           # shape: (2, R, N, 3)
     return total_fields
 
-
-
-
 def compute_flux_integral_scattered_field(plane, dipoles, coefficients):
     '''
     Computes the average power (flux) integral for the scattered field for multiple RHSs.
@@ -296,6 +293,83 @@ def compute_flux_integral_scattered_field(plane, dipoles, coefficients):
     print(f"integration_time: {time.time()-int_start}")
     return integrals  # Return real-valued power flux
 
+def Forward_solver(Scatter_information, Incident_informations, options):
+    """
+    Solves the forward problem for a specified scatterer and multiple sets of incident waves.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        Columns: propagation_vector, polarization, wavelength, frequency, power_integral
+    """
+    # Unpack options (with defaults)
+    show_MAS         = options.get('show_MAS', False)
+    show_power_curve = options.get('Show_power_curve', False)
+    plane_z          = options.get('plane_location', None)
+
+    # Extract geometry & domain
+    Surface  = Scatter_information['Surface']
+    pts      = Surface.points
+    M_total  = pts.shape[0]
+    N_grid   = int(np.sqrt(M_total))     # assume N×N grid
+    a, b     = pts[:,0].min(), pts[:,0].max()
+
+    # default plane height = 5× max z if not specified
+    if plane_z is None:
+        plane_z = 5 * pts[:,2].max()
+
+    # Build the evaluation plane *once*
+    Plane = C2.generate_plane_xy(plane_z, a, b, N_grid)
+
+    # Accumulate results here
+    records = []
+
+    for inc in Incident_informations:
+        # Solve MAS for this block of plane waves
+        int_coeffs, _, InteriorDipoles, _ = Construct_solve_MAS_system(
+            Scatter_information,
+            inc,
+            plot=show_MAS
+        )
+
+        # Compute power integrals (reuse same Plane)
+        power_int = compute_flux_integral_scattered_field(
+            Plane,
+            InteriorDipoles,
+            int_coeffs
+        )  # shape (M_block,)
+
+        # Incident metadata
+        props = inc['propagation_vectors']  # (M_block,3)
+        pols  = inc['polarizations']        # (M_block,)
+        omega = inc['omega']
+        lam   = inc['lambda']
+        freq  = omega / (2*np.pi)
+
+        # Record one row per wave
+        for j in range(props.shape[0]):
+            records.append({
+                'propagation_vector': props[j],
+                'polarization'      : pols[j],
+                'wavelength'        : lam,
+                'frequency'         : freq,
+                'power_integral'    : power_int[j]
+            })
+
+        # Optional plotting of this block’s power curve
+        if show_power_curve:
+            plt.figure()
+            plt.plot(np.abs(power_int), marker='o')
+            plt.xlabel('Incident index')
+            plt.ylabel('Power integral')
+            plt.title('Scattered Power vs. Incident Wave')
+            plt.tight_layout()
+            plt.show()
+
+    # Build DataFrame and return
+    df = pd.DataFrame.from_records(records,
+        columns=['propagation_vector','polarization','wavelength','frequency','power_integral'])
+    return df
 
 
 
@@ -372,14 +446,13 @@ def bump_test(width=1,resol=20):
     epsilon_air=1
     wavelength=325e-3
     omega=2*np.pi/wavelength
-    Incidentinformation={'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu, 'omega':omega}
-
-    #---------------------------------------------
-    #           Solution and plot
-    #---------------------------------------------
-    int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,True)
-    Plane=C2.generate_plane_xy(10,a,b,resol)
-    power_int=compute_flux_integral_scattered_field(Plane,InteriorDipoles,int_coeff)
-    plt.plot(np.abs(power_int))
-    plt.show()
+    Incidentinformation1={'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu,'lambda': wavelength, 'omega':omega}
+    Incidentinformation2={'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu,'lambda': 325e-5, 'omega': 2*np.pi/325e-5}
+    options = {
+    'show_MAS'         : False,
+    'plane_location'   : None,   # auto = 5×max height
+    'Show_power_curve' : True
+    }
+    df=Forward_solver(Scatterinformation,[Incidentinformation1,Incidentinformation2],options=options)
+    print(df)
 bump_test()
