@@ -37,8 +37,7 @@ def construct_RHSs(Surface, propagation_vectors, polarizations, epsilon_air, mu,
     points = Surface.points
     tau1 = Surface.tau1
     tau2 = Surface.tau2
-    N = points.shape[0]
-
+    
     # Evaluate fields for all M plane waves
     planewaves = PW.Plane_wave(propagation_vectors, polarizations, epsilon_air, mu, omegas)
     E_all, H_all = planewaves.evaluate_at_points(points)  # (2, M, N, 3)
@@ -49,10 +48,8 @@ def construct_RHSs(Surface, propagation_vectors, polarizations, epsilon_air, mu,
     b3 = -np.einsum("mnj,nj->mn", H_all, tau1)
     b4 = -np.einsum("mnj,nj->mn", H_all, tau2)
 
-    # Stack → shape (4, M, N), then permute → (M, 4, N), then reshape → (4*N, M)
-    rhs_matrix = np.stack([b1, b2, b3, b4], axis=0)    # (4, M, N)
-    rhs_matrix = np.transpose(rhs_matrix, (1, 0, 2))   # (M, 4, N)
-    rhs_matrix = rhs_matrix.reshape(len(propagation_vectors), 4*N).T  # (4*N, M)
+    b=np.hstack([b1,b2,b3,b4]) #Stack columns to get a (M_planewaves,4*N points matrix)
+    rhs_matrix=b.T # Transpose it to get the desired (4*N, M) matrix
 
     return rhs_matrix
 
@@ -63,35 +60,36 @@ def construct_sub_column(dipoles, Surface):
     Input:
         dipoles
         Surface: Surface object with:
-            - points: (M, 3)
-            - tau1, tau2: (M, 3) tangent vectors
-            - M: number of test points
+            - points: (N, 3)
+            - tau1, tau2: (N, 3) tangent vectors
+            - N: number of test points
 
     Output:
-        (4*M, N) matrix — tangential components of E and H fields from each dipole
+        (4*N, M) matrix — tangential components of E and H fields from each dipole
     '''
     points = Surface.points
     tau1 = Surface.tau1
     tau2 = Surface.tau2
-    M = Surface.M
+    N = points.shape[0]
 
-    E_all, H_all = dipoles.evaluate_at_points(points)
+    # Evaluate E and H fields
+    E_all, H_all = dipoles.evaluate_at_points(points)  # (M_dipoles, N_points, 3)
 
-    # Extract field blocks
-    E = E_all  # shape (N, M, 3)
-    H = H_all
+    # Compute projections using einsum
+    E_tau1 = np.einsum('nmj,mj->nm', E_all, tau1)  # (M_dipoles, N_points)
+    E_tau2 = np.einsum('nmj,mj->nm', E_all, tau2)
+    H_tau1 = np.einsum('nmj,mj->nm', H_all, tau1)
+    H_tau2 = np.einsum('nmj,mj->nm', H_all, tau2)
 
-    # Project fields onto tau vectors → shape (N, M)
-    E_tau1 = np.einsum("nmj,mj->nm", E, tau1)
-    E_tau2 = np.einsum("nmj,mj->nm", E, tau2)
-    H_tau1 = np.einsum("nmj,mj->nm", H, tau1)
-    H_tau2 = np.einsum("nmj,mj->nm", H, tau2)
+    # Stack the projections: shape (4*N, M_dipoles)
+    sub_column = np.vstack([
+        E_tau1.T,
+        E_tau2.T,
+        H_tau1.T,
+        H_tau2.T
+    ])
 
-    # Stack and reshape to (4*M, N)
-    block = np.stack([E_tau1, E_tau2, H_tau1, H_tau2], axis=0)  # (4, N, M)
-    block = block.transpose(1, 0, 2).reshape(len(dipoles.positions), 4*M).T  # (4*M, N)
-
-    return block
+    return sub_column
 
 def construct_matrix(Surface, inneraux, outeraux, mu, air_epsilon, scatter_epsilon, omega):
     '''
@@ -484,14 +482,11 @@ def bump_test(width=1,resol=20):
     Incidentinformation1={'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu,'lambda': wavelength, 'omega':omega}
     Incidentinformation2={'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu,'lambda': 325e-5, 'omega': 2*np.pi/325e-5}
     options = {
-    'show_MAS'         : False,
+    'show_MAS'         : True,
     'plane_location'   : None,   # auto = 5×max height
     'Show_power_curve' : False
     }
     #solution_time=time.time()
-    avg_power, all_power_curves=average_forward_response([Scatterinformation]*3,[Incidentinformation1],options)
-    for i in range(len(all_power_curves)):
-        plt.plot(all_power_curves[i])
-    plt.show()
+    avg_power, all_power_curves=average_forward_response([Scatterinformation],[Incidentinformation1],options)
     #print(f"solution time {time.time()-solution_time}")
 bump_test()

@@ -77,7 +77,7 @@ class Plane_wave:
             E_fields[i] = (R_z.T @ E.T).T
             H_fields[i] = (R_z.T @ H.T).T
 
-        return np.stack((E_fields, H_fields), axis=0)  # shape (2, M, N, 3)
+        return E_fields,H_fields
 
 
 
