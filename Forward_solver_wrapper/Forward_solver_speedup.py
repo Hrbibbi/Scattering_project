@@ -137,8 +137,8 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     Solves the MAS system for multiple plane wave excitations (same omega, mu, epsilon).
 
     Output:
-        int_coeffs: [C1, C2] arrays of shape (M, R) for interior dipoles in tau1 and tau2 (M dipoles, R planewaves)
-        ext_coeffs: [C3, C4] arrays of shape (N, M) for exterior dipoles in tau1 and tau2 (M dipoles, R planewaves)
+        int_coeffs: [C1, C2] arrays of shape (N, M) for interior dipoles in tau1 and tau2
+        ext_coeffs: [C3, C4] arrays of shape (N, M) for exterior dipoles in tau1 and tau2
         InteriorDipoles: [intDP1, intDP2] — input dipole data
         ExteriorDipoles: [extDP1, extDP2] — input dipole data
 
@@ -159,23 +159,20 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     #-------------------------------------------------------------
     # Unpack incident info
     #-------------------------------------------------------------
-    propagation_vectors = Incident_information['propagation_vectors']  # shape (R, 3)
-    polarizations = Incident_information['polarizations']              # shape (R,)
+    propagation_vectors = Incident_information['propagation_vectors']  # shape (M, 3)
+    polarizations = Incident_information['polarizations']              # shape (M,)
     epsilon_air = Incident_information['epsilon']
     incident_mu = Incident_information['mu']
     omega = Incident_information['omega']
     lam = Incident_information['lambda']
-
+    
     #-------------------------------------------------------------
     # Reduce surface information to necessary wavelength
     #-------------------------------------------------------------
 
     if reduce_grid:
         Surface, inneraux, outeraux = C2_surface.Set_dipoles_pr_WL(Surface,inneraux,outeraux,lam)
-    M=np.shape(inneraux.points)[0]
-    N=np.shape(Surface.points)[0]
-    R=len(polarizations)
-    print(f"M: {M}, N: {N}, R: {R}")
+    
     #-------------------------------------------------------------
     # Construct RHS matrix and MAS matrix
     #-------------------------------------------------------------
@@ -192,13 +189,13 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     #-------------------------------------------------------------
     # Solve system for all RHS
     #-------------------------------------------------------------
-
     sol_start = time.time()
-    C_matrix, *_ = np.linalg.lstsq(MAS_matrix, RHS_matrix, rcond=None) #solution size 4MxR
-    C1 = C_matrix[:M]
-    C2 = C_matrix[M:2*M]
-    C3 = C_matrix[2*M:3*M]
-    C4 = C_matrix[3*M:]
+    C_matrix, *_ = np.linalg.lstsq(MAS_matrix, RHS_matrix, rcond=None)  # shape (4*N, M)
+    N = len(intDP1.positions)
+    C1 = C_matrix[:N]
+    C2 = C_matrix[N:2*N]
+    C3 = C_matrix[2*N:3*N]
+    C4 = C_matrix[3*N:]
     print(f"Solution time: {time.time() - sol_start:.3f} s")
 
     #-------------------------------------------------------------
@@ -238,9 +235,9 @@ def compute_scattered_field_at_point(points, int_coeff, InteriorDipoles):
     for multiple sets of dipole coefficients (i.e., multiple incident conditions).
 
     Parameters:
-        points : (N, 3) array — evaluation points, (N points)
-        int_coeff : [C_1, C_2] — each of shape (M, R), (M dipoles, R incident coefficients)
-        InteriorDipoles : [intDP1, intDP2] — dipole objects 
+        points : (N, 3) array — evaluation points
+        int_coeff : [C_1, C_2] — each of shape (M, R)
+        InteriorDipoles : [intDP1, intDP2] — dipole objects
 
     Returns:
         (2, R, N, 3) array — scattered E and H fields
@@ -249,37 +246,42 @@ def compute_scattered_field_at_point(points, int_coeff, InteriorDipoles):
     intDP1, intDP2 = InteriorDipoles
 
     # Evaluate dipole fields: shape (2, M, N, 3)
-    evals1 = intDP1.evaluate_at_points(points)  # shape (2, M, N, 3)
-    evals2 = intDP2.evaluate_at_points(points)  # shape (2, M, N, 3)
+    evals1 = intDP1.evaluate_at_points(points)
+    evals2 = intDP2.evaluate_at_points(points)
 
-    # Use einsum to perform summation over dipoles with coefficients
-    # 'a m n d, m r -> a r n d' where:
-    # a = 2 (E, H), m = M (dipoles), n = N (points), d = 3 (vector components), r = R (inputs)
-    total_1 = np.einsum('amnd,mr->arnd', evals1, C_1)
-    total_2 = np.einsum('amnd,mr->arnd', evals2, C_2)
+    # Reshape for broadcasting:
+    # evals: (2, M, N, 3) → (2, M, 1, N, 3)
+    # coeffs: (M, R) → (1, M, R, 1, 1)
+    evals1 = evals1[:, :, None, :, :]        # (2, M, 1, N, 3)
+    evals2 = evals2[:, :, None, :, :]        # (2, M, 1, N, 3)
+    C_1 = C_1[None, :, :, None, None]        # (1, M, R, 1, 1)
+    C_2 = C_2[None, :, :, None, None]        # (1, M, R, 1, 1)
 
-    # Add contributions from both dipole groups
-    total_field = total_1 + total_2  # shape: (2, R, N, 3)
-    return total_field
+    # Weighted sum across dipoles (axis=1) → result shape: (2, R, N, 3)
+    field1 = np.sum(C_1 * evals1, axis=1)
+    field2 = np.sum(C_2 * evals2, axis=1)
 
-def compute_flux_integral_scattered_field(plane, int_coeff, InteriorDipoles,plot_first_integrand=False):
+    total_fields = field1 + field2           # shape: (2, R, N, 3)
+    return total_fields
+
+def compute_flux_integral_scattered_field(plane, dipoles, coefficients):
     '''
     Computes the average power (flux) integral for the scattered field for multiple RHSs.
 
     Input:
         plane: A C2_object (with .points and .normals)
-        int_coeff: List of dipole weights [C_1, C_2], each (M_dipoles, R_incident configs)
-        dipoles: List of dipole classes [intDP1, intDP2]
+        dipoles: List of dipole dictionaries [intDP1, intDP2]
+        coefficients: List of dipole weights [C_1, C_2], each (N_dipoles, M_rhs)
 
     Output:
-        flux_values: Array of shape (R,) — power flux per RHS
+        flux_values: Array of shape (M,) — power flux per RHS
     '''
     int_start=time.time()
     #---------------------------------------------------------------------
     # Extract geometry
     #---------------------------------------------------------------------
-    points = plane.points             # (N, 3)
-    normals = plane.normals           # (N, 3)
+    points = plane.points             # (N_points, 3)
+    normals = plane.normals           # (N_points, 3)
 
     dx = np.linalg.norm(points[1] - points[0])
     dA = dx * dx                      # Scalar area element (uniform)
@@ -287,19 +289,13 @@ def compute_flux_integral_scattered_field(plane, int_coeff, InteriorDipoles,plot
     #---------------------------------------------------------------------
     # Evaluate scattered fields: (2, M, N, 3)
     #---------------------------------------------------------------------
-    E, H = compute_scattered_field_at_point(points, int_coeff, InteriorDipoles) #E and H (R,N,3) each
-    
-    R, N , _ = np.shape(E)
-    Cross = 0.5 * np.cross(E, np.conj(H)) # (R,N,3)
-    integrands = np.einsum("rnk,nk->rn", Cross,normals) # (R,N)
+    E, H = compute_scattered_field_at_point(points, coefficients, dipoles)
 
-    if plot_first_integrand:
-        first_integrand=integrands[0,:]
-        N=int(np.sqrt(N))
-        plt.imshow(np.abs(np.reshape(first_integrand,(N,N))))
-        plt.show()
-    #Integral calculation
-    integrals = np.einsum("rn -> r", integrands*dA)    # (M,)
+    Cross = 0.5 * np.cross(E, np.conj(H))           # shape: (M, N, 3)
+    Cross_dot_n = np.einsum("mnj,nj->mn", Cross, normals)  # (M, N)
+
+    # Integrate over surface → sum over points
+    integrals = np.sum(Cross_dot_n, axis=1) * dA    # (M,)
     print(f"integration_time: {time.time()-int_start}")
     return integrals  # Return real-valued power flux
 
@@ -492,10 +488,10 @@ def bump_test(width=1,resol=100):
     #---------------------------------------------
     Incidentinformations=[]
     for i in range(2):
-        number=100
+        number=np.random.randint(low=1000,high=2000)
         propagation_vector = np.tile([0, 0, -1], (number, 1))
         polarization=np.linspace(0,np.pi/2,number)
-        wavelength=1
+        wavelength=np.random.rand(1)[0]+1
         epsilon_air=1
         #wavelength=1.5
         omega=2*np.pi/wavelength
@@ -507,10 +503,7 @@ def bump_test(width=1,resol=100):
     'plane_location'   : None,   # auto = 5×max height
     'Show_power_curve' : False
     }
-    int_coeffs, _, InteriorDipoles, _ = Construct_solve_MAS_system(Scatterinformation,Incidentinformations[0],plot=False,reduce_grid=True)
-    Plane=C2_surface.generate_plane_xy(5,a,b,20)
-    compute_scattered_field_at_point(Plane.points,int_coeffs,InteriorDipoles)
-    integrals=compute_flux_integral_scattered_field(Plane,int_coeffs,InteriorDipoles,plot_first_integrand=False)
-    plt.plot(np.abs(integrals))
-    plt.show()
-bump_test()
+    #solution_time=time.time()
+    avg_power, all_power_curves=average_forward_response([Scatterinformation],Incidentinformations,options)
+    #print(f"solution time {time.time()-solution_time}")
+#bump_test()

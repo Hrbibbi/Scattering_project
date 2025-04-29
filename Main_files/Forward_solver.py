@@ -326,29 +326,34 @@ def test_instance():
     omega=1
     Incidentinformation={'propagation_vector': propagation_vector, 'polarization': polarization, 'epsilon': epsilon_air, 'mu': mu, 'omega':omega}
     int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,True)
-    #Plane=C2.generate_plane_xy(100,a,b,20)
-    #print(compute_flux_integral_scattered_field(Plane,InteriorDipoles,int_coeff))
+    Plane=C2.generate_plane_xy(100,a,b,20)
+    print(compute_flux_integral_scattered_field(Plane,InteriorDipoles,int_coeff))
 
-def bump_test():
-    f = lambda x,y,x0,y0,height,sigma: height * np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2))
-    g = lambda x,y: (f(x,y,3.2049716441173697,-2.6184373514244346,0.3566862845006943,0.5045178007249862)+
-                     f(x,y,0.7804496417098932,-2.8682866110638114,0.16735177712044924,0.549210117954695)+
-                     f(x,y,3.2254281899208737,1.0637048351396867,0.10154774456698834,0.48617824563009)+
-                     f(x,y,-1.1080292473196582,0.8330555059815783,0.2175298584938063,0.6059738740659731)
-                    ) 
-    a,b=-5,5
-    N=200
-    x0,y0=np.linspace(a,b,N),np.linspace(a,b,N)
-    x,y=np.meshgrid(x0,y0)
-    z=g(x,y)
-    point_cloud,tau1,tau2,normals,mean_curvature=C2.compute_geometric_data(x,y,z,(b-a)/N)
+
+def bump_test(width=1,resol=20): 
+       #----------------------------------------
+    #       Surface creation
+    # ---------------------------------------  
+    a,b=-width,width
+    X0=np.linspace(a,b,resol)
+    Y0=np.linspace(a,b,resol)
+    X,Y=np.meshgrid(X0,Y0)
+    bump = lambda x,y,x0,y0,height,sigma: height*np.exp(
+        -( (x-x0)**2 + (y-y0)**2 ) / (2*sigma**2)
+    )
+    f = lambda x,y: (
+                    bump(x,y,-0.20073580984422001,0.7211428902558659,0.31959818254342154,0.49932924209851826)+
+                    bump(x,y,-0.5503701752921016,-0.5504087674620758,0.11742508365045984,0.6330880728874675) +
+                    bump(x,y,0.16178401878913407,0.3329161244736727,0.10617534828874074,0.6849549260809971) 
+                     )
+    Z=f(X,Y)
+    point_cloud,tau1,tau2,normals,mean_curvature=C2.compute_geometric_data(X,Y,Z,(width-(-width))/resol)
     inner_cloud=C2.generate_curvature_scaled_offset(point_cloud,normals,mean_curvature,-0.86)
     outer_cloud=C2.generate_curvature_scaled_offset(point_cloud,normals,mean_curvature,0.86)
+        
     Surface=C2.C2_surface(point_cloud,normals,tau1,tau2)
     inneraux=C2.C2_surface(inner_cloud,normals,tau1,tau2)
     outeraux=C2.C2_surface(outer_cloud,normals,tau1,tau2)
-    inneraux=C2.take_5_points_per_WL(inneraux,a,b,N)
-    outeraux=C2.take_5_points_per_WL(outeraux,a,b,N)
 
 
 
@@ -361,8 +366,8 @@ def bump_test():
     epsilon_air=1
     omega=1
     Incidentinformation={'propagation_vector': propagation_vector, 'polarization': polarization, 'epsilon': epsilon_air, 'mu': mu, 'omega':omega}
-    int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,False)
+    int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,True)
     Plane=C2.generate_plane_xy(100,a,b,20)
     print(compute_flux_integral_scattered_field(Plane,InteriorDipoles,int_coeff))   
 
-test_instance()
+bump_test()
