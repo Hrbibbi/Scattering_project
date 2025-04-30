@@ -310,7 +310,7 @@ def compute_flux_integral_scattered_field(plane, int_coeff, InteriorDipoles,plot
         x, y, z = points[:,0] , points[:,1], points[:,2]
         x, y, z = np.reshape(x,[N,N]), np.reshape(y, [N,N]), np.reshape(z,[N,N])
         first_integrand = np.reshape(first_integrand, [N,N])
-        plt.contourf(x,y,first_integrand)
+        plt.contourf(x,y,np.abs(first_integrand))
         plt.title(f"contour plot of integrand plane located at {z[0,0]}")
         plt.tight_layout()
         plt.show()
@@ -458,7 +458,7 @@ def create_surface_and_scattering_info_from_json(json_path):
     }]
     options = {
         'show_MAS': False,
-        'plane_location': None,
+        'plane_location': 2,
         'Show_power_curve': False,
         'plot_first_column': True,
         'plot_first_integrand': True,
