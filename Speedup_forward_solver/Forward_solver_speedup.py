@@ -407,7 +407,7 @@ def Multiple_scatter_solver(Scatter_configurations, Incident_configurations, opt
     return pd.DataFrame.from_records(records)
 
 
-def bump_test(width=1,resol=160): 
+def bump_test(width=0.5,resol=160): 
     #----------------------------------------
     #       Surface creation
     # ---------------------------------------  
@@ -443,11 +443,11 @@ def bump_test(width=1,resol=160):
     #           Incident information
     #---------------------------------------------
     Incidentinformations=[]
-    for i in range(100):
-        number=2
+    for i in range(1):
+        number=5
         propagation_vector = np.tile([0, 0, -1], (number, 1))
         polarization=np.linspace(0,np.pi/2,number)
-        wavelength=0.5
+        wavelength=1/(4)
         epsilon_air=1
         #wavelength=1.5
         omega=2*np.pi/wavelength
@@ -541,5 +541,5 @@ def create_surface_and_scattering_info_from_json(json_path):
     plt.plot(np.abs(powerints))
     plt.show()
 
-create_surface_and_scattering_info_from_json('surfaceParams.json')
-#bump_test()
+#create_surface_and_scattering_info_from_json('surfaceParams.json')
+bump_test()

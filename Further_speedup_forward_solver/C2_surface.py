@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.interpolate import RegularGridInterpolator
 
 class C2_surface:
     def __init__(self,points,normals,tau1,tau2):
@@ -80,72 +81,72 @@ def generate_curvature_scaled_offset(points, normals, mean_curvature,scaling):
     offset_points = points + safe_c * normals
     return offset_points
 
+
+
 def Set_dipoles_pr_WL(surface, inneraux, outeraux, lam, points_per_wavelength_surface=10, points_per_wavelength_aux=5):
     '''
     Reduces surface to have points_per_wavelength_surface samples per wavelength,
     and inneraux/outeraux to have points_per_wavelength_aux samples per wavelength.
+    Uses bilinear interpolation to ensure accurate point counts.
     Assumes x-y grids are square and regularly spaced.
-    
-    Input:
-        surface, inneraux, outeraux: C2_surface objects (must be same size initially)
-        lam: wavelength (scalar)
-        points_per_wavelength_surface: for true surface (default 10)
-        points_per_wavelength_aux: for auxiliary surfaces (default 5)
-
-    Output:
-        reduced_surface, reduced_inneraux, reduced_outeraux: reduced C2_surface objects
     '''
-    # -------------------------------
-    # 1. Compute scaling from main surface
-    # -------------------------------
+    def interpolate_surface(surf, new_side):
+        N_points = surf.points.shape[0]
+        N_side = int(np.sqrt(N_points))
+        if N_side ** 2 != N_points:
+            raise ValueError("Surface points do not form a perfect square grid!")
+
+        # Reshape surface components to 2D grid form
+        grid_shape = (N_side, N_side, 3)
+        pts = surf.points.reshape(grid_shape)
+        tau1 = surf.tau1.reshape(grid_shape)
+        tau2 = surf.tau2.reshape(grid_shape)
+        normals = surf.normals.reshape(grid_shape)
+
+        # Create original parameter grid (assumed regular)
+        x = np.linspace(0, 1, N_side)
+        y = np.linspace(0, 1, N_side)
+        new_x = np.linspace(0, 1, new_side)
+        new_y = np.linspace(0, 1, new_side)
+        mesh_x, mesh_y = np.meshgrid(new_x, new_y, indexing='ij')
+        interp_points = np.stack([mesh_x.ravel(), mesh_y.ravel()], axis=-1)
+
+        # Helper to interpolate each vector field
+        def interp_field(field):
+            out = np.zeros((new_side * new_side, 3))
+            for i in range(3):
+                interp = RegularGridInterpolator((x, y), field[:, :, i])
+                out[:, i] = interp(interp_points)
+            return out
+
+        return C2_surface(
+            points=interp_field(pts),
+            tau1=interp_field(tau1),
+            tau2=interp_field(tau2),
+            normals=interp_field(normals)
+        )
+
+    # Estimate scale
     x = surface.points[:, 0]
     surface_size = np.max(x) - np.min(x)
     scale = surface_size / lam
-    print(f"Wavelength scale: {scale}")
-    N_points = surface.points.shape[0]
-    N_side = int(np.sqrt(N_points))
-    if N_side**2 != N_points:
-        raise ValueError("Surface points do not form a perfect square grid!")
+    print(f"Wavelength scale: {scale:.2f}")
 
-    # -------------------------------
-    # 2. Define internal helper
-    # -------------------------------
-    def reduce_surface(surf, step):
-        points_grid = surf.points.reshape((N_side, N_side, 3))
-        tau1_grid = surf.tau1.reshape((N_side, N_side, 3))
-        tau2_grid = surf.tau2.reshape((N_side, N_side, 3))
-        normals_grid = surf.normals.reshape((N_side, N_side, 3))
+    # Compute target number of points per side
+    side_surface = int(np.ceil(np.sqrt(points_per_wavelength_surface**2 * scale**2)))
+    side_aux = int(np.ceil(np.sqrt(points_per_wavelength_aux**2 * scale**2)))
 
-        reduced_points = points_grid[::step, ::step].reshape(-1, 3)
-        reduced_tau1 = tau1_grid[::step, ::step].reshape(-1, 3)
-        reduced_tau2 = tau2_grid[::step, ::step].reshape(-1, 3)
-        reduced_normals = normals_grid[::step, ::step].reshape(-1, 3)
+    print(f"Target side (surface): {side_surface}, total: {side_surface**2}")
+    print(f"Target side (aux): {side_aux}, total: {side_aux**2}")
 
-        return C2_surface(
-            points=reduced_points,
-            tau1=reduced_tau1,
-            tau2=reduced_tau2,
-            normals=reduced_normals
-        )
+    # Interpolate to new grids
+    reduced_surface = interpolate_surface(surface, side_surface)
+    reduced_inneraux = interpolate_surface(inneraux, side_aux)
+    reduced_outeraux = interpolate_surface(outeraux, side_aux)
 
-    # -------------------------------
-    # 3. Compute different step sizes
-    # -------------------------------
-    total_points_surface = int(np.ceil(points_per_wavelength_surface * scale))
-    step_surface = max(1, N_side // total_points_surface)
-
-    total_points_aux = int(np.ceil(points_per_wavelength_aux * scale))
-    step_aux = max(1, N_side // total_points_aux)
-
-    # -------------------------------
-    # 4. Reduce with appropriate steps
-    # -------------------------------
-    reduced_surface = reduce_surface(surface, step_surface)
-    reduced_inneraux = reduce_surface(inneraux, step_aux)
-    reduced_outeraux = reduce_surface(outeraux, step_aux)
-
-    print(f"Resulting matrix size: {4*np.shape(reduced_surface.points)[0]}x {4*np.shape(reduced_inneraux.points)[0]}")
+    print(f"Final matrix sizes: surface {reduced_surface.points.shape[0]}, aux {reduced_inneraux.points.shape[0]}")
     return reduced_surface, reduced_inneraux, reduced_outeraux
+
 
 def plot_surface_with_offset(original_points, offset_points, N):
     """

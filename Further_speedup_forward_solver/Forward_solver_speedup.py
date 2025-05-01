@@ -1,13 +1,15 @@
 #-----------------------------------------------------------------------------
 #                                   Imports
 #-----------------------------------------------------------------------------
-import Hertzian_dipole_speedup as HD
+#import Hertzian_dipole_speedup as HD
+import Hertzian_dipole_jit as HD
 import C2_surface
-import plane_wave_speedup as PW
+import plane_wave_jit as PW
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
+import json
 
 
 def construct_RHSs(Surface, propagation_vectors, polarizations, epsilon_air, mu, omegas):
@@ -137,8 +139,8 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     Solves the MAS system for multiple plane wave excitations (same omega, mu, epsilon).
 
     Output:
-        int_coeffs: [C1, C2] arrays of shape (N, M) for interior dipoles in tau1 and tau2
-        ext_coeffs: [C3, C4] arrays of shape (N, M) for exterior dipoles in tau1 and tau2
+        int_coeffs: [C1, C2] arrays of shape (M, R) for interior dipoles in tau1 and tau2 (M dipoles, R planewaves)
+        ext_coeffs: [C3, C4] arrays of shape (N, M) for exterior dipoles in tau1 and tau2 (M dipoles, R planewaves)
         InteriorDipoles: [intDP1, intDP2] — input dipole data
         ExteriorDipoles: [extDP1, extDP2] — input dipole data
 
@@ -159,20 +161,23 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     #-------------------------------------------------------------
     # Unpack incident info
     #-------------------------------------------------------------
-    propagation_vectors = Incident_information['propagation_vectors']  # shape (M, 3)
-    polarizations = Incident_information['polarizations']              # shape (M,)
+    propagation_vectors = Incident_information['propagation_vectors']  # shape (R, 3)
+    polarizations = Incident_information['polarizations']              # shape (R,)
     epsilon_air = Incident_information['epsilon']
     incident_mu = Incident_information['mu']
     omega = Incident_information['omega']
     lam = Incident_information['lambda']
-    
+
     #-------------------------------------------------------------
     # Reduce surface information to necessary wavelength
     #-------------------------------------------------------------
 
     if reduce_grid:
         Surface, inneraux, outeraux = C2_surface.Set_dipoles_pr_WL(Surface,inneraux,outeraux,lam)
-    
+    M=np.shape(inneraux.points)[0]
+    N=np.shape(Surface.points)[0]
+    R=len(polarizations)
+    print(f"M: {M}, N: {N}, R: {R}")
     #-------------------------------------------------------------
     # Construct RHS matrix and MAS matrix
     #-------------------------------------------------------------
@@ -189,14 +194,15 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     #-------------------------------------------------------------
     # Solve system for all RHS
     #-------------------------------------------------------------
+
     sol_start = time.time()
-    C_matrix, *_ = np.linalg.lstsq(MAS_matrix, RHS_matrix, rcond=None)  # shape (4*N, M)
-    N = len(intDP1.positions)
-    C1 = C_matrix[:N]
-    C2 = C_matrix[N:2*N]
-    C3 = C_matrix[2*N:3*N]
-    C4 = C_matrix[3*N:]
-    print(f"Solution time: {time.time() - sol_start:.3f} s")
+    C_matrix, *_ = np.linalg.lstsq(MAS_matrix, RHS_matrix, rcond=None) #solution size 4MxR
+    C1 = C_matrix[:M]
+    C2 = C_matrix[M:2*M]
+    C3 = C_matrix[2*M:3*M]
+    C4 = C_matrix[3*M:]
+    solution_time=time.time()-sol_start
+    print(f"Solution time: {solution_time:.3f} s")
 
     #-------------------------------------------------------------
     # Optional plotting
@@ -227,7 +233,7 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     InteriorDipoles = [intDP1, intDP2]
     ExteriorDipoles = [extDP1, extDP2]
 
-    return int_coeffs, ext_coeffs, InteriorDipoles, ExteriorDipoles
+    return int_coeffs, ext_coeffs, InteriorDipoles, ExteriorDipoles, solution_time
 
 def compute_scattered_field_at_point(points, int_coeff, InteriorDipoles):
     """
@@ -235,9 +241,9 @@ def compute_scattered_field_at_point(points, int_coeff, InteriorDipoles):
     for multiple sets of dipole coefficients (i.e., multiple incident conditions).
 
     Parameters:
-        points : (N, 3) array — evaluation points
-        int_coeff : [C_1, C_2] — each of shape (M, R)
-        InteriorDipoles : [intDP1, intDP2] — dipole objects
+        points : (N, 3) array — evaluation points, (N points)
+        int_coeff : [C_1, C_2] — each of shape (M, R), (M dipoles, R incident coefficients)
+        InteriorDipoles : [intDP1, intDP2] — dipole objects 
 
     Returns:
         (2, R, N, 3) array — scattered E and H fields
@@ -246,42 +252,37 @@ def compute_scattered_field_at_point(points, int_coeff, InteriorDipoles):
     intDP1, intDP2 = InteriorDipoles
 
     # Evaluate dipole fields: shape (2, M, N, 3)
-    evals1 = intDP1.evaluate_at_points(points)
-    evals2 = intDP2.evaluate_at_points(points)
+    evals1 = intDP1.evaluate_at_points(points)  # shape (2, M, N, 3)
+    evals2 = intDP2.evaluate_at_points(points)  # shape (2, M, N, 3)
 
-    # Reshape for broadcasting:
-    # evals: (2, M, N, 3) → (2, M, 1, N, 3)
-    # coeffs: (M, R) → (1, M, R, 1, 1)
-    evals1 = evals1[:, :, None, :, :]        # (2, M, 1, N, 3)
-    evals2 = evals2[:, :, None, :, :]        # (2, M, 1, N, 3)
-    C_1 = C_1[None, :, :, None, None]        # (1, M, R, 1, 1)
-    C_2 = C_2[None, :, :, None, None]        # (1, M, R, 1, 1)
+    # Use einsum to perform summation over dipoles with coefficients
+    # 'a m n d, m r -> a r n d' where:
+    # a = 2 (E, H), m = M (dipoles), n = N (points), d = 3 (vector components), r = R (inputs)
+    total_1 = np.einsum('amnd,mr->arnd', evals1, C_1)
+    total_2 = np.einsum('amnd,mr->arnd', evals2, C_2)
 
-    # Weighted sum across dipoles (axis=1) → result shape: (2, R, N, 3)
-    field1 = np.sum(C_1 * evals1, axis=1)
-    field2 = np.sum(C_2 * evals2, axis=1)
+    # Add contributions from both dipole groups
+    total_field = total_1 + total_2  # shape: (2, R, N, 3)
+    return total_field
 
-    total_fields = field1 + field2           # shape: (2, R, N, 3)
-    return total_fields
-
-def compute_flux_integral_scattered_field(plane, dipoles, coefficients):
+def compute_flux_integral_scattered_field(plane, int_coeff, InteriorDipoles,plot_first_integrand=False):
     '''
     Computes the average power (flux) integral for the scattered field for multiple RHSs.
 
     Input:
         plane: A C2_object (with .points and .normals)
-        dipoles: List of dipole dictionaries [intDP1, intDP2]
-        coefficients: List of dipole weights [C_1, C_2], each (N_dipoles, M_rhs)
+        int_coeff: List of dipole weights [C_1, C_2], each (M_dipoles, R_incident configs)
+        dipoles: List of dipole classes [intDP1, intDP2]
 
     Output:
-        flux_values: Array of shape (M,) — power flux per RHS
+        flux_values: Array of shape (R,) — power flux per RHS
     '''
     int_start=time.time()
     #---------------------------------------------------------------------
     # Extract geometry
     #---------------------------------------------------------------------
-    points = plane.points             # (N_points, 3)
-    normals = plane.normals           # (N_points, 3)
+    points = plane.points             # (N, 3)
+    normals = plane.normals           # (N, 3)
 
     dx = np.linalg.norm(points[1] - points[0])
     dA = dx * dx                      # Scalar area element (uniform)
@@ -289,169 +290,127 @@ def compute_flux_integral_scattered_field(plane, dipoles, coefficients):
     #---------------------------------------------------------------------
     # Evaluate scattered fields: (2, M, N, 3)
     #---------------------------------------------------------------------
-    E, H = compute_scattered_field_at_point(points, coefficients, dipoles)
+    E, H = compute_scattered_field_at_point(points, int_coeff, InteriorDipoles) #E and H (R,N,3) each
+    
+    R, N , _ = np.shape(E)
+    Cross = 0.5 * np.cross(E, np.conj(H)) # (R,N,3)
+    integrands = np.einsum("rnk,nk->rn", Cross,normals) # (R,N)
 
-    Cross = 0.5 * np.cross(E, np.conj(H))           # shape: (M, N, 3)
-    Cross_dot_n = np.einsum("mnj,nj->mn", Cross, normals)  # (M, N)
-
-    # Integrate over surface → sum over points
-    integrals = np.sum(Cross_dot_n, axis=1) * dA    # (M,)
+    if plot_first_integrand:
+        first_integrand=integrands[0,:]
+        N=int(np.sqrt(N))
+        plt.imshow(np.abs(np.reshape(first_integrand,(N,N))))
+        plt.show()
+    #Integral calculation
+    integrals = np.einsum("rn -> r", integrands*dA)    # (M,)
     print(f"integration_time: {time.time()-int_start}")
     return integrals  # Return real-valued power flux
 
-def Forward_solver(Scatter_information, Incident_informations, options):
+def Single_scatter_solver(Scatter_information, Incident_configurations, options):
     """
-    Solves the forward problem for a specified scatterer and multiple sets of incident waves.
+    Solves the forward problem for a specified scatterer and multiple sets of incident waves sorted by wavelength.
 
     Returns
     -------
-    df : pandas.DataFrame
-        Columns: propagation_vector, polarization, wavelength, frequency, power_integral
+    flux_integrals : np.ndarray
+        Real part of the flux integrals for each plane wave configuration (flattened).
     """
-    # Unpack options (with defaults)
     show_MAS         = options.get('show_MAS', False)
     show_power_curve = options.get('Show_power_curve', False)
     plane_z          = options.get('plane_location', None)
 
-    # Extract geometry & domain
     Surface  = Scatter_information['Surface']
     pts      = Surface.points
-    M_total  = pts.shape[0]
-    N_grid   = int(np.sqrt(M_total))     # assume N×N grid
-    a, b     = pts[:,0].min(), pts[:,0].max()
+    x        = pts[:,0]
+    a, b     = np.min(x), np.max(x)
+    N_grid   = int(np.sqrt(pts.shape[0]))  # assume N×N grid
 
-    # default plane height = 5× max z if not specified
     if plane_z is None:
         plane_z = 5 * pts[:,2].max()
 
-    # Build the evaluation plane *once*
-    Plane = C2_surface.generate_plane_xy(plane_z, a, b, 10) #CHANGE DEPENDING ON REQUIRED PRECISION
-    # Accumulate results here
-    records = []
-    for idx, inc in enumerate(Incident_informations):
-        # ---- NEW PRINT HERE ----
-        print(f"\nComputing incident information number {idx+1}/{len(Incident_informations)}, wavelength: {inc['lambda']:.4f}")
-        total_time=time.time()
-        # Solve MAS for this block of plane waves
-        int_coeffs, _, InteriorDipoles, _ = Construct_solve_MAS_system(
+    Plane = C2_surface.generate_plane_xy(plane_z, a, b, 50)
+
+    all_flux = []
+    total_sol_time=0
+    for idx, inc_lam in enumerate(Incident_configurations):
+        print(f"\nComputing incident information number {idx+1}/{len(Incident_configurations)}, wavelength: {inc_lam['lambda']:.4f}")
+        total_time = time.time()
+
+        int_coeffs, _, InteriorDipoles, _, solution_time = Construct_solve_MAS_system(
             Scatter_information,
-            inc,
+            inc_lam,
             plot=show_MAS
         )
+        total_sol_time +=solution_time
 
-        # Incident metadata
-        props = inc['propagation_vectors']  # (M_block,3)
-        pols  = inc['polarizations']        # (M_block,)
-        omega = inc['omega']
-        lam   = inc['lambda']
-        freq  = omega / (2*np.pi)
+        power_ints = compute_flux_integral_scattered_field(
+            plane=Plane,
+            InteriorDipoles=InteriorDipoles,
+            int_coeff=int_coeffs
+        )  # shape: (M_block,)
 
-        power_int = compute_flux_integral_scattered_field(
-            Plane,
-            InteriorDipoles,
-            int_coeffs
-        )  # shape (M_block)
+        all_flux.append(np.real(power_ints))  # collect real parts
 
-        # Record one row per wave
-        for j in range(props.shape[0]):
-            records.append({
-                'propagation_vector': props[j],
-                'polarization'      : pols[j],
-                'wavelength'        : lam,
-                'frequency'         : freq,
-                'power_integral'    : power_int[j]
-            })
-
-        # Optional plotting of this block’s power curve
         if show_power_curve:
             plt.figure()
-            plt.plot(np.abs(power_int), marker='o')
+            plt.plot(np.abs(power_ints), marker='o')
             plt.xlabel('Incident index')
             plt.ylabel('Power integral')
             plt.title('Scattered Power vs. Incident Wave')
             plt.tight_layout()
             plt.show()
-        print(f"total time: {time.time()-total_time}")
-    # Build DataFrame and return
-    df = pd.DataFrame.from_records(records,
-        columns=['propagation_vector','polarization','wavelength','frequency','power_integral'])
-    return df
 
-def average_forward_response(Scattering_Informations, Incident_Informations, options):
+        print(f"total time: {time.time() - total_time:.2f} seconds")
+    print(f"total time used on solving: {total_sol_time}")
+    return np.concatenate(all_flux)  # shape: (total_M_block,)
+
+def Multiple_scatter_solver(Scatter_configurations, Incident_configurations, options):
     """
-    Averages the power integral from forward solves across multiple surface realizations.
-
-    Parameters
-    ----------
-    Scattering_Informations : list of dict
-        Each dict describes one surface realization + its physical parameters.
-    Incident_Informations : list of dict
-        Each dict contains incident wave configurations. All are used for each surface.
-    options : dict
-        Dictionary of options to pass to Forward_solver (e.g., show_MAS, plane_location, Show_power_curve).
+    Solves the forward problem for a set of scatterers and incident wave configurations.
 
     Returns
     -------
-    avg_power : np.ndarray
-        The average power integral across surface realizations.
-    all_power_curves : list of np.ndarray
-        The power integral arrays for each realization (for optional plotting).
+    df : pandas.DataFrame
+        DataFrame containing averaged flux integrals across all scatterers.
     """
-    assert len(Scattering_Informations) > 0, "Need at least one surface realization"
-    assert isinstance(Incident_Informations, list) and len(Incident_Informations) > 0, "Incident_Informations must be a non-empty list"
+    all_fluxes = []
     completion_time=time.time()
-    all_power_curves = []
+    for i,Scatter in enumerate(Scatter_configurations):
+        print(f"\n\nSolving realization {i+1}/{len(Scatter_configurations)}")
+        flux = Single_scatter_solver(Scatter, Incident_configurations, options)
+        all_fluxes.append(flux)
+    # Stack into shape (n_scatterers, total_M_block)
+    flux_array = np.stack(all_fluxes, axis=0)  # shape: (S, T)
+    mean_flux = np.mean(flux_array, axis=0)    # shape: (T,)
+    # Build metadata from the first scatterer config
+    first_config = Incident_configurations
+    records = []
+    for inc in first_config:
+        props = inc['propagation_vectors']
+        pols  = inc['polarizations']
+        omega = inc['omega']
+        lam   = inc['lambda']
+        freq  = omega / (2*np.pi)
 
-    for i, scatter_info in enumerate(Scattering_Informations):
-        print(f"\n\nSolving realization {i+1}/{len(Scattering_Informations)}")
-        df = Forward_solver(scatter_info, Incident_Informations, options)
-        power_curve = np.array(df['power_integral'].values)
-        all_power_curves.append(power_curve)
-
-    # Stack and compute mean over realizations
-    all_power_array = np.stack(all_power_curves, axis=0)  # shape (n_realizations, n_incidents_total)
-    avg_power = np.mean(all_power_array, axis=0)          # shape (n_incidents_total,)
-    completion_time=time.time()-completion_time
-    print(f"\ncompletion time: {completion_time}")
+        for j in range(props.shape[0]):
+            records.append({
+                'propagation_vector': props[j,:],
+                'polarization'      : pols[j],
+                'wavelength'        : lam,
+                'frequency'         : freq,
+                'mean_simulated_fluxintegral': mean_flux[len(records)]
+            })
     config=0
-    for inc in Incident_Informations:
+    for inc in Incident_configurations:
         config+=len(inc['polarizations'])
-    print(f"Number of forward problems solved: {len(Scattering_Informations)*config}")
-    print(f"Average time pr forward solve: {completion_time/(len(Scattering_Informations)*config)}")
-    return avg_power, all_power_curves
+    completion_time=time.time()-completion_time
+    print(f"\n\nCompletion time: {completion_time}")
+    print(f"Number of forward problems solved: {len(Scatter_configurations)*config}")
+    print(f"Average time pr forward solve: {completion_time/(len(Scatter_configurations)*config)}")
+    return pd.DataFrame.from_records(records)
 
 
-def test_instance():
-    f = lambda x,y: (1+1/2+1/4)+np.cos(np.sqrt(x**2+y**2))+1/4*np.cos(2*np.sqrt(x**2+y**2))
-    a,b=-np.pi,np.pi
-    N=20
-    x0,y0=np.linspace(a,b,N),np.linspace(a,b,N)
-    x,y=np.meshgrid(x0,y0)
-    z=f(x,y)
-    point_cloud,tau1,tau2,normals,mean_curvature=C2.compute_geometric_data(x,y,z,(b-a)/N)
-    inner_cloud=C2.generate_curvature_scaled_offset(point_cloud,normals,mean_curvature,-0.86)
-    outer_cloud=C2.generate_curvature_scaled_offset(point_cloud,normals,mean_curvature,0.86)
-    Surface=C2.C2_surface(point_cloud,normals,tau1,tau2)
-    inneraux=C2.C2_surface(inner_cloud,normals,tau1,tau2)
-    outeraux=C2.C2_surface(outer_cloud,normals,tau1,tau2)
-    scatter_epsilon=2
-    mu=1
-    Scatterinformation={'Surface': Surface,'inneraux': inneraux, 'outeraux': outeraux,'epsilon': scatter_epsilon,'mu': mu}
-    iter=1
-    iter_time=time.time()
-    propagation_vector = np.tile([0, 0, -1], (100*iter, 1))
-    polarization=np.linspace(0,np.pi/2,100*iter)
-    epsilon_air=1
-    omega=1
-    Incidentinformation={'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu, 'omega':omega}
-    int_coeff,ext_coeff, InteriorDipoles, ExteriorDipoles=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,False)
-    Plane=C2.generate_plane_xy(100,a,b,20)
-    power_int=compute_flux_integral_scattered_field(Plane,InteriorDipoles,int_coeff)
-    plt.plot(np.abs(power_int))
-    plt.show()
-    print(f"RHS shape: {100*iter}, iteration_time: {time.time()-iter_time}")
-
-def bump_test(width=1,resol=100): 
+def bump_test(width=0.5,resol=160): 
     #----------------------------------------
     #       Surface creation
     # ---------------------------------------  
@@ -487,11 +446,11 @@ def bump_test(width=1,resol=100):
     #           Incident information
     #---------------------------------------------
     Incidentinformations=[]
-    for i in range(2):
-        number=np.random.randint(low=1000,high=2000)
+    for i in range(1):
+        number=5
         propagation_vector = np.tile([0, 0, -1], (number, 1))
         polarization=np.linspace(0,np.pi/2,number)
-        wavelength=np.random.rand(1)[0]+1
+        wavelength=1/(4)
         epsilon_air=1
         #wavelength=1.5
         omega=2*np.pi/wavelength
@@ -503,7 +462,132 @@ def bump_test(width=1,resol=100):
     'plane_location'   : None,   # auto = 5×max height
     'Show_power_curve' : False
     }
-    #solution_time=time.time()
-    avg_power, all_power_curves=average_forward_response([Scatterinformation],Incidentinformations,options)
-    #print(f"solution time {time.time()-solution_time}")
-#bump_test()
+    #Single_scatter_solver(Scatterinformation,Incidentinformations,options)
+    df=Multiple_scatter_solver([Scatterinformation],Incidentinformations,options)
+    print(df)
+def create_surface_and_scattering_info_from_json(json_path):
+    with open(json_path, 'r') as f:
+        params = json.load(f)
+
+    width = params['halfWidth_x']
+    resol = params['resolution']
+    alpha = params['alpha']
+    bump_params = params['bumpData']
+    scatter_epsilon = params['epsilon1']
+    mu = 1  # Assumed constant
+
+    # -------------------------
+    # Surface creation
+    # -------------------------
+    a, b = -width, width
+    X0 = np.linspace(a, b, resol)
+    Y0 = np.linspace(a, b, resol)
+    X, Y = np.meshgrid(X0, Y0)
+
+    def bump(x, y, x0, y0, height, sigma):
+        return height * np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2))
+
+    def surface_function(x, y):
+        return sum(
+            bump(x, y, b['x0'], b['y0'], b['height'], b['sigma'])
+            for b in bump_params
+        )
+
+    Z = surface_function(X, Y)
+
+    dx = (b - a) / resol
+    point_cloud, tau1, tau2, normals, mean_curvature = C2_surface.compute_geometric_data(X, Y, Z, dx)
+    inner_cloud = C2_surface.generate_curvature_scaled_offset(point_cloud, normals, mean_curvature, -alpha)
+    outer_cloud = C2_surface.generate_curvature_scaled_offset(point_cloud, normals, mean_curvature, alpha)
+
+    Surface = C2_surface.C2_surface(point_cloud, normals, tau1, tau2)
+    inneraux = C2_surface.C2_surface(inner_cloud, normals, tau1, tau2)
+    outeraux = C2_surface.C2_surface(outer_cloud, normals, tau1, tau2)
+
+    Scatterinformation = {
+        'Surface': Surface,
+        'inneraux': inneraux,
+        'outeraux': outeraux,
+        'epsilon': scatter_epsilon,
+        'mu': mu
+    }
+
+    # -------------------------
+    # Incident information
+    # -------------------------
+    k = np.array(params['k'])
+    betas = np.array(params['betas'])
+    wavelength = 2 * np.pi / params['omega']
+    epsilon_air = 1
+    number = len(betas)
+
+    propagation_vector = np.tile(k, (number, 1))
+    polarization = betas
+    omega = params['omega']
+
+    Incidentinformations = [{
+        'propagation_vectors': propagation_vector,
+        'polarizations': polarization,
+        'epsilon': epsilon_air,
+        'mu': mu,
+        'lambda': wavelength,
+        'omega': omega
+    }]
+    options = {
+        'show_MAS': False,
+        'plane_location': None,
+        'Show_power_curve': False
+    }
+
+    powerints=Single_scatter_solver(Scatterinformation,Incidentinformations,options)
+    
+
+def bump_test_2(width=1,resol=160): 
+    #----------------------------------------
+    #       Surface creation
+    # ---------------------------------------  
+    a,b=-width,width
+    X0=np.linspace(a,b,resol)
+    Y0=np.linspace(a,b,resol)
+    X,Y=np.meshgrid(X0,Y0)
+    bump = lambda x,y,x0,y0,height,sigma: height*np.exp(
+        -( (x-x0)**2 + (y-y0)**2 ) / (2*sigma**2)
+    )
+    f = lambda x,y: (
+                    bump(x,y,-0.20073580984422001,0.7211428902558659,0.31959818254342154,0.49932924209851826)+
+                    bump(x,y,-0.5503701752921016,-0.5504087674620758,0.11742508365045984,0.6330880728874675) +
+                    bump(x,y,0.16178401878913407,0.3329161244736727,0.10617534828874074,0.6849549260809971) 
+                     )
+    Z=f(X,Y)
+    point_cloud,tau1,tau2,normals,mean_curvature=C2_surface.compute_geometric_data(X,Y,Z,(width-(-width))/resol)
+    inner_cloud=C2_surface.generate_curvature_scaled_offset(point_cloud,normals,mean_curvature,-0.86)
+    outer_cloud=C2_surface.generate_curvature_scaled_offset(point_cloud,normals,mean_curvature,0.86)
+        
+    Surface=C2_surface.C2_surface(point_cloud,normals,tau1,tau2)
+    inneraux=C2_surface.C2_surface(inner_cloud,normals,tau1,tau2)
+    outeraux=C2_surface.C2_surface(outer_cloud,normals,tau1,tau2)
+
+    #---------------------------------------------
+    #           Scattering information
+    #---------------------------------------------
+    scatter_epsilon=2.56
+    mu=1
+    Scatterinformation={'Surface': Surface,'inneraux': inneraux, 'outeraux': outeraux,'epsilon': scatter_epsilon,'mu': mu}
+    
+    #---------------------------------------------
+    #           Incident information
+    #---------------------------------------------
+    number=1
+    propagation_vector = np.tile([0, 0, -1], (number, 1))
+    polarization=np.linspace(0,np.pi/2,number)
+    wavelength=1
+    epsilon_air=1
+        #wavelength=1.5
+    omega=2*np.pi/wavelength
+    start_time=time.time()
+    for omega in np.linspace(1,100,2000):
+        #print(np.shape(construct_RHSs(Surface,propagation_vector,polarization,epsilon_air,mu,omega)))
+        #print(omega)
+        construct_RHSs(Surface,propagation_vector,polarization,epsilon_air,mu,omega)
+    print(f"RHS construction time: {time.time()-start_time}")
+bump_test()

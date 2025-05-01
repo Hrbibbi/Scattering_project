@@ -198,6 +198,37 @@ def generate_plane_xy(height,a,b,numpoints):
     tau2=normals
     return C2_surface(points,normals,tau1,tau2)
 
+def generate_plane(height, a, b, numpoints, normal_axis='z'):
+    x0 = np.linspace(a, b, numpoints)
+    y0 = np.linspace(a, b, numpoints)
+    xg, yg = np.meshgrid(x0, y0)
+
+    if normal_axis == 'z':
+        x, y = xg.ravel(), yg.ravel()
+        z = height * np.ones_like(x)
+        points = np.column_stack((x, y, z))
+        normals = np.zeros_like(points)
+        normals[:, 2] = 1
+    elif normal_axis == 'x':
+        y, z = xg.ravel(), yg.ravel()
+        x = height * np.ones_like(y)
+        points = np.column_stack((x, y, z))
+        normals = np.zeros_like(points)
+        normals[:, 0] = 1
+    elif normal_axis == 'y':
+        x, z = xg.ravel(), yg.ravel()
+        y = height * np.ones_like(x)
+        points = np.column_stack((x, y, z))
+        normals = np.zeros_like(points)
+        normals[:, 1] = 1
+    else:
+        raise ValueError("normal_axis must be 'x', 'y', or 'z'")
+    print(normals[0,:])
+    tau1 = normals
+    tau2 = normals
+    return C2_surface(points, normals, tau1, tau2)
+
+
 def cylinder(radius,height,num_points):
     r=radius
     theta0=np.linspace(0,2*np.pi,num_points)

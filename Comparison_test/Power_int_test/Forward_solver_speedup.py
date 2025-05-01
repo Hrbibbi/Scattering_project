@@ -1,9 +1,9 @@
 #-----------------------------------------------------------------------------
 #                                   Imports
 #-----------------------------------------------------------------------------
-import Hertzian_dipole_speedup as HD
+import Hertzian_dipole_jit as HD
 import C2_surface
-import plane_wave_speedup as PW
+import plane_wave_jit as PW
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -310,14 +310,15 @@ def compute_flux_integral_scattered_field(plane, int_coeff, InteriorDipoles,plot
         x, y, z = points[:,0] , points[:,1], points[:,2]
         x, y, z = np.reshape(x,[N,N]), np.reshape(y, [N,N]), np.reshape(z,[N,N])
         first_integrand = np.reshape(first_integrand, [N,N])
-        plt.contourf(x,y,np.abs(first_integrand))
+        plt.contourf(x,y,np.real(first_integrand))
+        plt.colorbar()
         plt.title(f"contour plot of integrand plane located at {z[0,0]}")
         plt.tight_layout()
         plt.show()
     #Integral calculation
     integrals = np.einsum("rn -> r", integrands*dA)    # (M,)
     print(f"integration_time: {time.time()-int_start}")
-    return integrals  # Return real-valued power flux
+    return integrals 
 
 def Single_scatter_solver(Scatter_information, Incident_configurations, options):
     """
@@ -334,6 +335,7 @@ def Single_scatter_solver(Scatter_information, Incident_configurations, options)
     plot_first_column = options.get('plot_first_column', False)
     plot_first_integrand = options.get('plot_first_integrand', False)
     plot_surface = options.get('plot_surface', False)
+    plane_normal_axis  = options.get('plane_normal_axis', 'z')
 
     Surface  = Scatter_information['Surface']
     pts      = Surface.points
@@ -349,9 +351,10 @@ def Single_scatter_solver(Scatter_information, Incident_configurations, options)
         plt.show()
 
     if plane_z is None:
-        plane_z = 5 * pts[:,2].max()
+        axis_idx = {'x': 0, 'y': 1, 'z': 2}[plane_normal_axis]
+        plane_z = 5 * np.max(pts[:, axis_idx])
 
-    Plane = C2_surface.generate_plane_xy(plane_z, a, b, 20)
+    Plane = C2_surface.generate_plane(plane_z, a, b, 30, normal_axis=plane_normal_axis)
 
     all_flux = []
 
@@ -371,16 +374,16 @@ def Single_scatter_solver(Scatter_information, Incident_configurations, options)
             InteriorDipoles=InteriorDipoles,
             int_coeff=int_coeffs,
             plot_first_integrand=plot_first_integrand
-        )  # shape: (M_block,)
+        )
 
         all_flux.append(np.real(power_ints))  # collect real parts
-
+    
         if show_power_curve:
             plt.figure()
-            plt.plot(np.abs(power_ints), marker='o')
-            plt.xlabel('Incident index')
+            plt.plot(np.degrees(inc_lam['polarizations']),np.real(power_ints), marker='o')
+            plt.xlabel('polarization_angle')
             plt.ylabel('Power integral')
-            plt.title('Scattered Power vs. Incident Wave')
+            plt.title(f'Plane located at {plane_z} in {plane_normal_axis}')
             plt.tight_layout()
             plt.show()
 
@@ -459,15 +462,16 @@ def create_surface_and_scattering_info_from_json(json_path):
     options = {
         'show_MAS': False,
         'plane_location': 2,
-        'Show_power_curve': False,
-        'plot_first_column': True,
+        'Show_power_curve': True,
+        'plot_first_column': False,
         'plot_first_integrand': True,
-        'plot_surface': True
+        'plot_surface': False,
+        'plane_normal_axis': 'z'
     }
 
-    powerints=Single_scatter_solver(Scatterinformation,Incidentinformations,options)
-    #plt.plot(np.abs(powerints))
-    #plt.show()
+    Single_scatter_solver(Scatterinformation,Incidentinformations,options)
+    #options['plane_location']=-10
+    #Single_scatter_solver(Scatterinformation,Incidentinformations,options)
 
-create_surface_and_scattering_info_from_json('surfaceParams.json')
+create_surface_and_scattering_info_from_json('surfaceParams_2.json')
 #bump_test()
