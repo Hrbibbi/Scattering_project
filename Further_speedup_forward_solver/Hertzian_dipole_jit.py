@@ -5,7 +5,7 @@ from numba import njit, prange
 @njit(parallel=True, fastmath=True)
 def _evaluate_hertzian_fields(positions, directions, mu, epsilon, omega, X):
     """
-    positions: (M,3) float64
+    positions : (M,3) float64
     directions: (M,3) float64, assumed unit‐norm
     X         : (N,3) float64
     returns   : (2, M, N, 3) complex128 array

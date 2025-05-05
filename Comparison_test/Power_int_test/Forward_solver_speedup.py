@@ -2,7 +2,7 @@
 #                                   Imports
 #-----------------------------------------------------------------------------
 import Hertzian_dipole_jit as HD
-import C2_surface
+import C2_surface_alt as C2_surface
 import plane_wave_jit as PW
 import numpy as np
 import pandas as pd
