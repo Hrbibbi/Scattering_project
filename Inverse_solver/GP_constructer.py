@@ -62,8 +62,8 @@ def generate_samples(L: np.ndarray, num_samples: int, random_state: int = 42) ->
     samples = L @ Z  # shape: (9, num_samples)
     return samples.T.reshape(num_samples, 3, 3)
 
-L,_,K=generate_matern_kernel_constant_tensor()
-epsilons=generate_samples(L,10)
+#L,_,K=generate_matern_kernel_constant_tensor()
+#epsilons=generate_samples(L,10)
 
-plt.imshow(epsilons[0,:,:])
-plt.show()
+#plt.imshow(epsilons[0,:,:])
+#plt.show()

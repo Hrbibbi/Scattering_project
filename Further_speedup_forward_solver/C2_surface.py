@@ -144,7 +144,7 @@ def Set_dipoles_pr_WL(surface, inneraux, outeraux, lam, points_per_wavelength_su
     reduced_inneraux = interpolate_surface(inneraux, side_aux)
     reduced_outeraux = interpolate_surface(outeraux, side_aux)
 
-    print(f"Final matrix sizes: surface {reduced_surface.points.shape[0]}, aux {reduced_inneraux.points.shape[0]}")
+    print(f"Final matrix sizes: surface {4*reduced_surface.points.shape[0]}, aux {4*reduced_inneraux.points.shape[0]}")
     return reduced_surface, reduced_inneraux, reduced_outeraux
 
 

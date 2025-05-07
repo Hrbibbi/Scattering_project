@@ -172,7 +172,7 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     #-------------------------------------------------------------
 
     if reduce_grid:
-        Surface, inneraux, outeraux = C2_surface.Set_dipoles_pr_WL(Surface,inneraux,outeraux,lam)
+        Surface, inneraux, outeraux = C2_surface.Set_dipoles_pr_WL(Surface,inneraux,outeraux,lam,points_per_wavelength_surface=10,points_per_wavelength_aux=5)
     M=np.shape(inneraux.points)[0]
     N=np.shape(Surface.points)[0]
     R=len(polarizations)
@@ -464,7 +464,7 @@ def create_surface_and_scattering_info_from_json(json_path):
         'plane_location': 2,
         'Show_power_curve': True,
         'plot_first_column': False,
-        'plot_first_integrand': True,
+        'plot_first_integrand': False,
         'plot_surface': False,
         'plane_normal_axis': 'z'
     }
@@ -473,5 +473,5 @@ def create_surface_and_scattering_info_from_json(json_path):
     #options['plane_location']=-10
     #Single_scatter_solver(Scatterinformation,Incidentinformations,options)
 
-create_surface_and_scattering_info_from_json('surfaceParams_2.json')
+create_surface_and_scattering_info_from_json('surfaceParamsNormal.json')
 #bump_test()

@@ -65,8 +65,9 @@ class Plane_wave:
 
             H_perp=np.column_stack( (-oner*np.cos(theta)*exp_term,zoer,-oner*np.sin(theta)*exp_term) )/self.eta
             H_par =np.column_stack( (zoer,oner*exp_term,zoer))/self.eta
+            
             E=np.cos(polarization)*E_perp+np.sin(polarization)*E_par
-            H=np.cos(polarization)*H_perp+np.sin(polarization)*H_par
+            H=np.sin(polarization)*H_perp+np.cos(polarization)*H_par
         
             E=(R_z @ E.T).T
             H=(R_z @ H.T).T

@@ -35,7 +35,7 @@ def compare_csv_files(file1, file2):
         differences[col] = np.mean(np.abs(df1[col] - df2[col]))
 
     # Print differences
-    print("\nTotal differences between A_simple.csv and PN_simple.csv:")
+    print("\mean differences between A_simple.csv and PN_simple.csv:")
     for key, value in differences.items():
         print(f"{key}: {value}")
 
@@ -113,7 +113,7 @@ if False:
 #                         Simple case for planewave
 #----------------------------------------------------------------------------
  
-if True:
+if False:
     # -----------------------------------------------
     #               A Implementation (Python)
     # -----------------------------------------------
@@ -160,3 +160,37 @@ if False:
     #               Compare Results
     # -----------------------------------------------
     compare_csv_files("A_simple.csv", "PN_simple.csv")
+
+
+#----------------------------------------------------------------------------
+#                               Flux integrals
+#----------------------------------------------------------------------------
+
+import C2_surface_alt as C2
+import plane_wave_comparison as PW
+import matplotlib.pyplot as plt
+
+betas = np.linspace(0, np.pi / 2, 100)  # Polarization angles
+propagation_vector = np.tile([0, 0, -1], (100, 1))  # Fixed direction
+PW1 = PW.Plane_wave(propagation_vector, betas, epsilon=1, mu=1, omega=1)
+
+# Parameters
+normals = ['x', 'y', 'z']
+heights = [1,-0.5] #Height of the plane
+
+fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey=True)
+fig.suptitle("Flux Integral vs Polarization Angle for Various Plane Orientations", fontsize=16)
+
+for i, axis in enumerate(normals):
+    for j, h in enumerate(heights):
+        ax = axes[j, i]
+        plane = C2.generate_plane(height=h, a=-1, b=1, numpoints=50, normal_axis=axis)
+        integrals = PW.compute_flux_integral(plane, PW1)
+        ax.plot(betas, np.real(integrals))
+        ax.set_title(f"Normal: {axis}, Height: {h}")
+        ax.set_xlabel("β (radians)")
+        if i == 0:
+            ax.set_ylabel("Re(Flux Integral)")
+
+plt.tight_layout(rect=[0, 0, 1, 0.95])
+plt.show()
