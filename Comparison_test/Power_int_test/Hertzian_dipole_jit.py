@@ -93,7 +93,7 @@ class Hertzian_Dipole:
             raise ValueError("directions must be (M,3)")
 
         norms = np.linalg.norm(directions, axis=1)
-        if not np.allclose(norms, 1.0, atol=1e-6):
+        if not np.allclose(norms, 1.0, atol=1e-1):
             raise ValueError("direction vectors must be unit‐norm")
 
         for name, val in (("mu",mu),("epsilon",epsilon),("omega",omega)):

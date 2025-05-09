@@ -188,7 +188,7 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     )
     print(f"Number of RHS: {np.shape(RHS_matrix)[1]}")
     print(f"Construction time: {time.time() - con_time:.3f} s")
-    #print(f"Matrix shape: {MAS_matrix.shape}, RHS shape: {RHS_matrix.shape}")
+    print(f"Matrix shape: {MAS_matrix.shape}, RHS shape: {RHS_matrix.shape}")
 
     #-------------------------------------------------------------
     # Solve system for all RHS
@@ -312,7 +312,7 @@ def compute_flux_integral_scattered_field(plane, int_coeff, InteriorDipoles,plot
         first_integrand = np.reshape(first_integrand, [N,N])
         plt.contourf(x,y,np.real(first_integrand))
         plt.colorbar()
-        plt.title(f"contour plot of integrand plane located at {z[0,0]}")
+        plt.title(f"contour plot of integrand plane located at {z[0,0]} above the surface")
         plt.tight_layout()
         plt.show()
     #Integral calculation
@@ -383,7 +383,7 @@ def Single_scatter_solver(Scatter_information, Incident_configurations, options)
             plt.plot(np.degrees(inc_lam['polarizations']),np.real(power_ints), marker='o')
             plt.xlabel('polarization_angle')
             plt.ylabel('Power integral')
-            plt.title(f'Plane located at {plane_z} in {plane_normal_axis}')
+            plt.title(f'Plane located at {plane_z} over surface in {plane_normal_axis}')
             plt.tight_layout()
             plt.show()
 
@@ -459,17 +459,17 @@ def create_surface_and_scattering_info_from_json(json_path):
         'lambda': wavelength,
         'omega': omega
     }]
+    
     options = {
-        'show_MAS': False,
-        'plane_location': 2,
-        'Show_power_curve': True,
-        'plot_first_column': False,
-        'plot_first_integrand': False,
-        'plot_surface': False,
-        'plane_normal_axis': 'z'
-    }
-
-    Single_scatter_solver(Scatterinformation,Incidentinformations,options)
+                'show_MAS': True,
+                'plane_location': 3,
+                'Show_power_curve': True,
+                'plot_first_column': True,
+                'plot_first_integrand': True,
+                'plot_surface': True,
+                'plane_normal_axis': 'z'
+            }
+    flux_integral = Single_scatter_solver(Scatterinformation,Incidentinformations,options)
     #options['plane_location']=-10
     #Single_scatter_solver(Scatterinformation,Incidentinformations,options)
 

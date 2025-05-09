@@ -7,72 +7,77 @@ from numba import njit, prange
 @njit(parallel=True, fastmath=True)
 def _evaluate_plane_wave(pvs, pols, epsilon, mu, omega, X):
     """
-    pvs:   (M,3)  float64  unit propagation vectors
-    pols:  (M,)   float64  polarization angles [rad]
+    Jitted evaluation of multiple plane waves at evaluation points.
+    
+    Parameters:
+    pvs:    (M,3) float64 - unit propagation vectors
+    pols:   (M,)  float64 - polarization angles [rad], in [0, π/2]
     epsilon, mu, omega: scalars
-    X:     (N,3)  float64  eval points
+    X:      (N,3) float64 - evaluation points
 
-    returns: E_fields, H_fields of shape (M, N, 3), complex128
+    Returns:
+    E_fields, H_fields: (M, N, 3) complex128 - electric and magnetic field values
     """
     M = pvs.shape[0]
     N = X.shape[0]
 
-    # precompute
     wavenumber = omega * np.sqrt(epsilon * mu)
-    eta        = np.sqrt(mu / epsilon)
+    eta = np.sqrt(mu / epsilon)
 
-    # allocate outputs
-    E_fields = np.empty((M, N, 3), dtype=np.complex128)
-    H_fields = np.empty((M, N, 3), dtype=np.complex128)
+    E_fields = np.zeros((M, N, 3), dtype=np.complex128)
+    H_fields = np.zeros((M, N, 3), dtype=np.complex128)
 
-    # loop over plane waves (parallelized)
     for i in prange(M):
-        kx, ky, kz = pvs[i, 0], pvs[i, 1], pvs[i, 2]
-        pol        = pols[i]
+        k = pvs[i]
+        pol = pols[i]
+        kx, ky, kz = k[0], k[1], k[2]
+        kxyx, kxyy = -kx, -ky
 
-        # rotation to align k in x–z plane
-        # original code did: phi = arctan2(-ky, -kx)
-        phi  = np.arctan2(-ky, -kx)
+        # Handle edge case where kx = ky = 0
+        if kxyx == 0.0 and kxyy == 0.0:
+            phi = 0.0
+        else:
+            phi = np.arctan2(kxyy, kxyx)
+
         cphi = np.cos(phi)
         sphi = np.sin(phi)
 
-        # after rotation, kz stays the same
-        # theta = arccos(–kz)
-        theta = np.arccos(-kz)
+        # Rotation matrix R_z
+        R_z = np.array([
+            [ cphi,  sphi, 0.0],
+            [-sphi,  cphi, 0.0],
+            [ 0.0,   0.0,  1.0]
+        ])
+        R_inv = R_z.T
+
+        # Rotate k
+        k_rot = R_z @ k
+        theta = np.arccos(-k_rot[2])
         ctheta = np.cos(theta)
         stheta = np.sin(theta)
 
-        # inner loop over evaluation points
+        # Loop over evaluation points
         for j in range(N):
-            Xx, Xy, Xz = X[j, 0], X[j, 1], X[j, 2]
+            Xx, Xy, Xz = X[j]
+            # Rotate point
+            x_rot = cphi * Xx + sphi * Xy
+            z_rot = Xz  # y component irrelevant after rotation
 
-            # rotate the point into k–aligned frame
-            x_rot =  cphi * Xx - sphi * Xy
-            z_rot =  Xz
-
-            # phase factor
             phase = np.exp(-1j * wavenumber * (x_rot * stheta - z_rot * ctheta))
 
-            # build the two basis fields in that frame
-            # E_perp = [0, ϕ, 0],   E_par = [ϕ·ctheta, 0, ϕ·stheta]
-            # H_perp = [–ϕ·ctheta, 0, –ϕ·stheta]/η,   H_par = [0, ϕ, 0]/η
-            # then superpose with polarization angle
-            Exr = np.sin(pol) * (phase * ctheta)
-            Eyr = np.cos(pol) * phase
-            Ezr = np.sin(pol) * (phase * stheta)
+            # Basis fields
+            E_perp = np.array([0.0, phase, 0.0], dtype=np.complex128)
+            E_par  = np.array([phase * ctheta, 0.0, phase * stheta], dtype=np.complex128)
 
-            Hxr = np.cos(pol) * (-phase * ctheta / eta)
-            Hyr = np.sin(pol) * ( phase       / eta)
-            Hzr = np.cos(pol) * (-phase * stheta / eta)
+            H_perp = np.array([-phase * ctheta, 0.0, -phase * stheta], dtype=np.complex128) / eta
+            H_par  = np.array([0.0, phase, 0.0], dtype=np.complex128) / eta
 
-            # rotate back into lab frame (R_z @ [Exr,Eyr,Ezr])
-            E_fields[i, j, 0] =  cphi * Exr + sphi * Eyr
-            E_fields[i, j, 1] = -sphi * Exr + cphi * Eyr
-            E_fields[i, j, 2] =  Ezr
+            E_lab = np.cos(pol) * E_perp + np.sin(pol) * E_par
+            H_lab = np.sin(pol) * H_perp + np.cos(pol) * H_par
 
-            H_fields[i, j, 0] =  cphi * Hxr + sphi * Hyr
-            H_fields[i, j, 1] = -sphi * Hxr + cphi * Hyr
-            H_fields[i, j, 2] =  Hzr
+            # Rotate back
+            E_fields[i, j] = R_inv.astype(np.complex128) @ E_lab
+            H_fields[i, j] = R_inv.astype(np.complex128) @ H_lab
 
     return E_fields, H_fields
 
