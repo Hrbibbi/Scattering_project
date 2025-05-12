@@ -77,11 +77,12 @@ def compute_geometric_data(x,y,z,h):
     return point_cloud,tau1,tau2,normals,mean_curvature
 
 def generate_curvature_scaled_offset(points, normals, mean_curvature,scaling):
-    safe_c = scaling/np.max(mean_curvature)
+    if np.max(mean_curvature)==0:
+        safe_c = scaling
+    else:
+        safe_c = scaling/np.max(mean_curvature)
     offset_points = points + safe_c * normals
     return offset_points
-
-
 
 def Set_dipoles_pr_WL(surface, inneraux, outeraux, lam, points_per_wavelength_surface=10, points_per_wavelength_aux=5):
     '''
@@ -130,21 +131,21 @@ def Set_dipoles_pr_WL(surface, inneraux, outeraux, lam, points_per_wavelength_su
     x = surface.points[:, 0]
     surface_size = np.max(x) - np.min(x)
     scale = surface_size / lam
-    print(f"Wavelength scale: {scale:.2f}")
+    #print(f"Wavelength scale: {scale:.2f}")
 
     # Compute target number of points per side
     side_surface = int(np.ceil(np.sqrt(points_per_wavelength_surface**2 * scale**2)))
     side_aux = int(np.ceil(np.sqrt(points_per_wavelength_aux**2 * scale**2)))
 
-    print(f"Target side (surface): {side_surface}, total: {side_surface**2}")
-    print(f"Target side (aux): {side_aux}, total: {side_aux**2}")
+    #print(f"Target side (surface): {side_surface}, total: {side_surface**2}")
+    #print(f"Target side (aux): {side_aux}, total: {side_aux**2}")
 
     # Interpolate to new grids
     reduced_surface = interpolate_surface(surface, side_surface)
     reduced_inneraux = interpolate_surface(inneraux, side_aux)
     reduced_outeraux = interpolate_surface(outeraux, side_aux)
 
-    print(f"Final matrix sizes: surface {reduced_surface.points.shape[0]}, aux {reduced_inneraux.points.shape[0]}")
+    #print(f"Final matrix sizes: surface {reduced_surface.points.shape[0]}, aux {reduced_inneraux.points.shape[0]}")
     return reduced_surface, reduced_inneraux, reduced_outeraux
 
 
@@ -215,35 +216,7 @@ def cylinder(radius,height,num_points):
 
     return C2_surface(points,normals,tau1,tau2)
 
-def generate_plane(height, a, b, numpoints, normal_axis='z'):
-    x0 = np.linspace(a, b, numpoints)
-    y0 = np.linspace(a, b, numpoints)
-    xg, yg = np.meshgrid(x0, y0)
 
-    if normal_axis == 'z':
-        x, y = xg.ravel(), yg.ravel()
-        z = height * np.ones_like(x)
-        points = np.column_stack((x, y, z))
-        normals = np.zeros_like(points)
-        normals[:, 2] = 1
-    elif normal_axis == 'x':
-        y, z = xg.ravel(), yg.ravel()
-        x = height * np.ones_like(y)
-        points = np.column_stack((x, y, z))
-        normals = np.zeros_like(points)
-        normals[:, 0] = 1
-    elif normal_axis == 'y':
-        x, z = xg.ravel(), yg.ravel()
-        y = height * np.ones_like(x)
-        points = np.column_stack((x, y, z))
-        normals = np.zeros_like(points)
-        normals[:, 1] = 1
-    else:
-        raise ValueError("normal_axis must be 'x', 'y', or 'z'")
-    print(normals[0,:])
-    tau1 = normals
-    tau2 = normals
-    return C2_surface(points, normals, tau1, tau2)
 
 
 

@@ -76,7 +76,14 @@ def compute_geometric_data(x,y,z,h):
     return point_cloud,tau1,tau2,normals,mean_curvature
 
 def generate_curvature_scaled_offset(points, normals, mean_curvature,scaling):
-    safe_c = scaling/np.max(mean_curvature)
+    max_mean=np.max(mean_curvature)
+    print(max_mean)
+    if max_mean == 0:
+        safe_c=1
+        print("here")
+    else:
+        safe_c = scaling/max_mean
+        print("there")
     offset_points = points + safe_c * normals
     return offset_points
 
