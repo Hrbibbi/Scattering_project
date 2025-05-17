@@ -2,7 +2,7 @@
 #                                   Imports
 #-----------------------------------------------------------------------------
 import Hertzian_dipole_jit as HD
-import C2_surface_alt as C2_surface
+import Spline_function as SP
 import plane_wave_jit as PW
 import numpy as np
 import pandas as pd
@@ -36,9 +36,9 @@ def construct_RHSs(Surface, propagation_vectors, polarizations, epsilon_air, mu,
         omegas: M array
     '''
     points = Surface.points
-    tau1 = Surface.tau1 
+    tau1 = Surface.tau1
+
     tau2 = Surface.tau2
-    print(tau1)
     # Evaluate fields for all M plane waves
     planewaves = PW.Plane_wave(propagation_vectors, polarizations, epsilon_air, mu, omegas)
     E_all, H_all = planewaves.evaluate_at_points(points)  # (2, M, N, 3)
@@ -133,7 +133,7 @@ def construct_matrix(Surface, inneraux, outeraux, mu, air_epsilon, scatter_epsil
 
     return MAS, intDP1, intDP2, extDP1, extDP2
     
-def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=False, reduce_grid=True, plot_first_column=False):
+def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=False, plot_first_column=False):
     '''
     Solves the MAS system for multiple plane wave excitations (same omega, mu, epsilon).
 
@@ -151,9 +151,7 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     #-------------------------------------------------------------
     # Unpack scattering info
     #-------------------------------------------------------------
-    Surface = Scatter_information['Surface']
-    inneraux = Scatter_information['inneraux']
-    outeraux = Scatter_information['outeraux']
+    SSurface = Scatter_information['Surface']
     scatter_epsilon = Scatter_information['epsilon']
     scatter_mu = Scatter_information['mu']
 
@@ -171,8 +169,7 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information, plot=F
     # Reduce surface information to necessary wavelength
     #-------------------------------------------------------------
 
-    if reduce_grid:
-        Surface, inneraux, outeraux = C2_surface.Set_dipoles_pr_WL(Surface,inneraux,outeraux,lam,points_per_wavelength_surface=10,points_per_wavelength_aux=5)
+    Surface,inneraux,outeraux=SP.sample_surface_MAS(SSurface,lam)
     M=np.shape(inneraux.points)[0]
     N=np.shape(Surface.points)[0]
     R=len(polarizations)
@@ -304,10 +301,6 @@ def compute_flux_integral_scattered_field(plane, int_coeff, InteriorDipoles,plot
     Cross = 0.5 * np.cross(E, np.conjugate(H)) # (R,N,3)
 
     integrands = np.einsum("rnk,nk->rn", Cross,normals) # (R,N)
-    plt.imshow(np.real(integrands))
-    plt.show()
-    plt.imshow(np.abs(integrands))
-    plt.show()
     if plot_first_integrand:
         N=int(np.sqrt(N))
         x, y, z = points[:,0] , points[:,1], points[:,2]
@@ -341,27 +334,8 @@ def Single_scatter_solver(Scatter_information, Incident_configurations, options)
     plot_surface = options.get('plot_surface', False)
     plane_normal_axis  = options.get('plane_normal_axis', 'z')
 
-    Surface  = Scatter_information['Surface']
-    pts      = Surface.points
-    x        = pts[:,0]
-    a, b     = np.min(x), np.max(x)
-    N_grid   = int(np.sqrt(pts.shape[0]))  # assume N×N grid
-
-    if plot_surface:
-        x, y, z = pts[:,0] , pts[:,1], pts[:,2]
-        x, y, z = np.reshape(x,[N_grid,N_grid]), np.reshape(y, [N_grid,N_grid]), np.reshape(z,[N_grid,N_grid])
-        plt.contourf(x,y,z)
-        plt.title("Surface contour plot")
-        plt.show()
-
-    if plane_z is None:
-        #axis_idx = {'x': 0, 'y': 1, 'z': 2}[plane_normal_axis]
-        plane_z = 20 * (np.max(pts[:, 2])+1)
-
-    Plane = C2_surface.generate_plane_xy(plane_z,a,b,50)
-
     all_flux = []
-
+    Plane=SP.generate_plane_xy(5,-1,1,20)
     for idx, inc_lam in enumerate(Incident_configurations):
         print(f"\nComputing incident information number {idx+1}/{len(Incident_configurations)}, wavelength: {inc_lam['lambda']:.4f}")
         total_time = time.time()
@@ -372,7 +346,6 @@ def Single_scatter_solver(Scatter_information, Incident_configurations, options)
             plot=show_MAS,
             plot_first_column=plot_first_column
         )
-
         power_ints = compute_flux_integral_scattered_field(
             plane=Plane,
             InteriorDipoles=InteriorDipoles,
@@ -390,7 +363,7 @@ def Single_scatter_solver(Scatter_information, Incident_configurations, options)
             plt.title(f'Plane located at {plane_z} over surface in {plane_normal_axis}')
             plt.tight_layout()
             plt.show()
-
+        
         print(f"total time: {time.time() - total_time:.2f} seconds")
 
     return np.concatenate(all_flux)  # shape: (total_R_block,)
@@ -424,66 +397,14 @@ def create_surface_and_scattering_info_from_json(json_path):
         )
 
     Z = surface_function(X, Y)
+    #Z = np.ones_like(X)
 
-    dx = (b - a) / resol
-    Z = np.ones_like(X)
-    point_cloud, tau1, tau2, normals, mean_curvature = C2_surface.compute_geometric_data(X, Y, Z, dx)
-    print(f"max mean_curvature: {np.max(mean_curvature)}")
-    inner_cloud = C2_surface.generate_curvature_scaled_offset(point_cloud, normals, mean_curvature, -alpha)
-    outer_cloud = C2_surface.generate_curvature_scaled_offset(point_cloud, normals, mean_curvature, alpha)
-
-    Surface = C2_surface.C2_surface(point_cloud, normals, tau1, tau2)
-    inneraux = C2_surface.C2_surface(inner_cloud, normals, tau1, tau2)
-    outeraux = C2_surface.C2_surface(outer_cloud, normals, tau1, tau2)
+    Surface=SP.SplineSurface(X,Y,Z)
     
-    if True:
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
-
-        # Extract the surface point arrays
-        points_main = Surface.points  # shape: (N^2, 3)
-        points_inner = inneraux.points
-        points_outer = outeraux.points
-
-        # Create 3D plot
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection='3d')
-
-        # Plot main surface
-        ax.plot_trisurf(points_main[:, 0], points_main[:, 1], points_main[:, 2],
-                        color='blue', alpha=0.5, label='Main Surface')
-
-        # Plot inner auxiliary surface
-        ax.plot_trisurf(points_inner[:, 0], points_inner[:, 1], points_inner[:, 2],
-                        color='green', alpha=0.5, label='Inner Auxiliary')
-
-        # Plot outer auxiliary surface
-        ax.plot_trisurf(points_outer[:, 0], points_outer[:, 1], points_outer[:, 2],
-                        color='red', alpha=0.5, label='Outer Auxiliary')
-
-        # Labels and title
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.set_title('Main and Auxiliary Surfaces')
-
-        # Add legend proxy manually
-        from matplotlib.patches import Patch
-        legend_patches = [
-            Patch(color='blue', label='Main Surface'),
-            Patch(color='green', label='Inner Auxiliary'),
-            Patch(color='red', label='Outer Auxiliary')
-        ]
-        ax.legend(handles=legend_patches)
-
-        plt.tight_layout()
-        plt.show()
-
+    Surface.plot_surface_with_vectors(resolution=5)
 
     Scatterinformation = {
         'Surface': Surface,
-        'inneraux': inneraux,
-        'outeraux': outeraux,
         'epsilon': scatter_epsilon,
         'mu': mu
     }
@@ -515,68 +436,14 @@ def create_surface_and_scattering_info_from_json(json_path):
                 'show_MAS': True,
                 'plane_location': None,
                 'Show_power_curve': True,
-                'plot_first_column': True,
-                'plot_first_integrand': True,
-                'plot_surface': True,
+                'plot_first_column': False,
+                'plot_first_integrand': False,
+                'plot_surface': False,
                 'plane_normal_axis': 'z'
             }
-    flux_integral = Single_scatter_solver(Scatterinformation,Incidentinformations,options)
+    #flux_integral = Single_scatter_solver(Scatterinformation,Incidentinformations,options)
     #options['plane_location']=-10
     #Single_scatter_solver(Scatterinformation,Incidentinformations,options)
 
-def test():
-    width=1
-    resol=100
-    #----------------------------------------
-    #       Surface creation
-    # ---------------------------------------  
-    a,b=-width,width
-    X0=np.linspace(a,b,resol)
-    Y0=np.linspace(a,b,resol)
-    X,Y=np.meshgrid(X0,Y0)
-    Z=np.ones_like(X)
-    point_cloud,tau1,tau2,normals,mean_curvature=C2_surface.compute_geometric_data(X,Y,Z,(width-(-width))/resol)
-    inner_cloud=C2_surface.generate_curvature_scaled_offset(point_cloud,normals,mean_curvature,-0.86)
-    outer_cloud=C2_surface.generate_curvature_scaled_offset(point_cloud,normals,mean_curvature,0.86)
-        
-    Surface=C2_surface.C2_surface(point_cloud,normals,tau1,tau2)
-    inneraux=C2_surface.C2_surface(inner_cloud,normals,tau1,tau2)
-    outeraux=C2_surface.C2_surface(outer_cloud,normals,tau1,tau2)
-
-    #---------------------------------------------
-    #           Scattering information
-    #---------------------------------------------
-    scatter_epsilon=2.56
-    mu=1
-    Scatterinformation={'Surface': Surface,'inneraux': inneraux, 'outeraux': outeraux,'epsilon': scatter_epsilon,'mu': mu}
-    
-    #---------------------------------------------
-    #           Incident information
-    #---------------------------------------------
-    Incidentinformations=[]
-    for i in range(1):
-        number=100
-        propagation_vector = np.tile([0, 0, -1], (number, 1))
-        polarization=np.linspace(0,np.pi/2,number)
-        wavelength=1
-        epsilon_air=1
-        #wavelength=1.5
-        omega=2*np.pi/wavelength
-        Incidentinformations.append(
-            {'propagation_vectors': propagation_vector, 'polarizations': polarization, 'epsilon': epsilon_air, 'mu': mu,'lambda': wavelength, 'omega':omega}
-        )
-        options = {
-                'show_MAS': True,
-                'plane_location': None,
-                'Show_power_curve': True,
-                'plot_first_column': True,
-                'plot_first_integrand': True,
-                'plot_surface': True,
-                'plane_normal_axis': 'z'
-            }
-    flux_integral = Single_scatter_solver(Scatterinformation,Incidentinformations,options)
-    plt.plot(flux_integral)
-    plt.show()
-    #df.to_csv("testing.csv")
 create_surface_and_scattering_info_from_json('surfaceParamsNormal-4.json')
-#test()
+

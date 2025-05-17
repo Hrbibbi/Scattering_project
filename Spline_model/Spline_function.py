@@ -1,0 +1,135 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.interpolate import bisplrep, bisplev
+
+class SplineSurface:
+    def __init__(self, x_fine, y_fine, z_fine):
+        # Ensure x_fine and y_fine are 2D and meshgridded
+        self.x_fine = x_fine
+        self.y_fine = y_fine
+        self.z_fine = z_fine
+        self.tck = bisplrep(x_fine.ravel(), y_fine.ravel(), z_fine.ravel())
+        self.size=self.x_fine.max()-self.x_fine.min()
+        self.max_mean_curvature = self._compute_max_mean_curvature()
+
+    def _evaluate_spline(self, x, y, dx=0, dy=0):
+        # Accept 1D input arrays and use meshgrid internally
+        return np.array(bisplev(x, y, self.tck, dx=dx, dy=dy))
+
+    def _compute_max_mean_curvature(self, resolution=100):
+        # Uniform grid in parameter space
+        x = np.linspace(self.x_fine.min(), self.x_fine.max(), resolution)
+        y = np.linspace(self.y_fine.min(), self.y_fine.max(), resolution)
+
+        fx = self._evaluate_spline(x, y, dx=1, dy=0)
+        fy = self._evaluate_spline(x, y, dx=0, dy=1)
+        fxx = self._evaluate_spline(x, y, dx=2, dy=0)
+        fxy = self._evaluate_spline(x, y, dx=1, dy=1)
+        fyy = self._evaluate_spline(x, y, dx=0, dy=2)
+
+        fx = np.array(fx)
+        fy = np.array(fy)
+        fxx = np.array(fxx)
+        fxy = np.array(fxy)
+        fyy = np.array(fyy)
+
+        denom = (1 + fx**2 + fy**2) ** 1.5
+        numer = ((1 + fy**2) * fxx - 2 * fx * fy * fxy + (1 + fx**2) * fyy)
+        H = numer / (2 * denom)
+        return np.max(np.abs(H))
+
+    def construct_auxiliary_points(self, resolution, scale):
+        x = np.linspace(self.x_fine.min(), self.x_fine.max(), resolution)
+        y = np.linspace(self.y_fine.min(), self.y_fine.max(), resolution)
+        X, Y = np.meshgrid(x, y, indexing='ij')
+        Z = self._evaluate_spline(x, y)
+
+        fx = self._evaluate_spline(x, y, dx=1, dy=0)
+        fy = self._evaluate_spline(x, y, dx=0, dy=1)
+
+        tau_x = np.stack([np.ones_like(fx), np.zeros_like(fx), fx], axis=-1)
+        tau_y = np.stack([np.zeros_like(fy), np.ones_like(fy), fy], axis=-1)
+
+        normals = np.cross(tau_x, tau_y)
+        tau_y = np.cross(normals, tau_x)  # Ensure right-handed orthonormal basis
+
+        # Normalize
+        tau_x /= np.linalg.norm(tau_x, axis=-1, keepdims=True)
+        tau_y /= np.linalg.norm(tau_y, axis=-1, keepdims=True)
+        normals /= np.linalg.norm(normals, axis=-1, keepdims=True)
+
+        points = np.stack([X, Y, Z], axis=-1).reshape(-1, 3)
+        offset = (scale / self.max_mean_curvature) * normals.reshape(-1, 3)
+        auxiliary_points = points + offset
+
+        return auxiliary_points, tau_x.reshape(-1, 3), tau_y.reshape(-1, 3), normals.reshape(-1, 3)
+
+    def plot_surface_with_vectors(self, resolution=20, quiver_scale=0.2):
+        # High-res mesh for smooth surface
+        dense_res = 4 * resolution
+        x_dense = np.linspace(self.x_fine.min(), self.x_fine.max(), dense_res)
+        y_dense = np.linspace(self.y_fine.min(), self.y_fine.max(), dense_res)
+        X_dense, Y_dense = np.meshgrid(x_dense, y_dense, indexing='ij')
+        Z_dense = self._evaluate_spline(x_dense, y_dense)
+
+        # Tangents and normals from auxiliary surface at scale=0
+        points, tau_x, tau_y, normals = self.construct_auxiliary_points(resolution, scale=0.0)
+
+        # Plot
+        fig = plt.figure(figsize=(18, 5))
+
+        # Surface only
+        ax1 = fig.add_subplot(131, projection='3d')
+        ax1.plot_surface(X_dense, Y_dense, Z_dense, cmap='viridis', alpha=0.9)
+        ax1.set_title("Spline Surface")
+
+        # Surface + tangents + normals
+        ax2 = fig.add_subplot(132, projection='3d')
+        ax2.plot_surface(X_dense, Y_dense, Z_dense, cmap='viridis', alpha=0.5)
+        ax2.quiver(points[:, 0], points[:, 1], points[:, 2],
+                   tau_x[:, 0], tau_x[:, 1], tau_x[:, 2],
+                   color='r', length=quiver_scale, normalize=True)
+        ax2.quiver(points[:, 0], points[:, 1], points[:, 2],
+                   tau_y[:, 0], tau_y[:, 1], tau_y[:, 2],
+                   color='g', length=quiver_scale, normalize=True)
+        ax2.quiver(points[:, 0], points[:, 1], points[:, 2],
+                   normals[:, 0], normals[:, 1], normals[:, 2],
+                   color='b', length=quiver_scale, normalize=True)
+        ax2.set_title("Tangents and Normals")
+
+        # Surface + auxiliary ±0.5
+        aux_above, _, _, _ = self.construct_auxiliary_points(resolution, scale=0.5)
+        aux_below, _, _, _ = self.construct_auxiliary_points(resolution, scale=-0.5)
+
+        ax3 = fig.add_subplot(133, projection='3d')
+        ax3.plot_surface(X_dense, Y_dense, Z_dense, cmap='gray', alpha=0.3)
+        ax3.scatter(aux_above[:, 0], aux_above[:, 1], aux_above[:, 2],
+                    c='magenta', s=10, label='Aux +')
+        ax3.scatter(aux_below[:, 0], aux_below[:, 1], aux_below[:, 2],
+                    c='cyan', s=10, label='Aux -')
+        ax3.set_title("Auxiliary Surfaces ±0.5")
+
+        for ax in [ax1, ax2, ax3]:
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+            ax.set_zlabel("z")
+
+        plt.tight_layout()
+        plt.show()
+
+# Example usage:
+x = np.linspace(-1, 1, 50)
+y = np.linspace(-1, 1, 50)
+X, Y = np.meshgrid(x, y)
+Z = np.exp(-(X**2+Y**2))
+
+spline_surf = SplineSurface(X, Y, Z)
+spline_surf.plot_surface_with_vectors(resolution=5)
+
+def sample_surface_MAS(spline_surf,wavelength):
+    scale=spline_surf.size/wavelength
+    surface_resol=int(np.ceil(np.sqrt(2)*5*scale))
+    auxiliary_resol=int(np.ceil(5*scale))
+    inner_points  , tau_inner, tau_inner, normals=spline_surf.construct_auxiliary_points(auxiliary_resol, -0.86)
+    outer_points  , tau_outer, tau_outer, normals=spline_surf.construct_auxiliary_points(auxiliary_resol,  0.86)
+    surface_points, _        , _        , _      =spline_surf.construct_auxiliary_points(surface_resol  ,  0.00)
