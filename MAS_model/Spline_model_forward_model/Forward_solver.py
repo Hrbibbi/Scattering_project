@@ -8,6 +8,13 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 import json
+import pandas as pd
+from os import environ
+#Computer only has 4 cores
+environ['OMP_NUM_THREADS']='4'
+environ['MPI_NUM_THREADS']='4'
+environ['MKL_NUM_THREADS']='4'
+environ['OPENBLAS_NUM_THREADS']='4'
 
 def construct_RHSs(Surface, propagation_vectors, polarizations, epsilon_air, mu, omega):
     '''
@@ -250,11 +257,95 @@ def compute_linear_combinations(points, coeffs, dipoles):
     total_field = total_1 + total_2  # shape: (2, R, N, 3)
     return total_field
 
+def compute_flux_integral_scattered_field(plane, int_coeff, InteriorDipoles):
+    '''
+    Computes the average power (flux) integral for the scattered field for multiple RHSs.
+
+    Input:
+        plane: A C2_object (with .points and .normals)
+        int_coeff: List of dipole weights [C_1, C_2], each (M_dipoles, R_incident configs)
+        dipoles: List of dipole classes [intDP1, intDP2]
+
+    Output:
+        flux_values: Array of shape (R,) — power flux per RHS
+    '''
+    int_start=time.time()
+    #---------------------------------------------------------------------
+    # Extract geometry
+    #---------------------------------------------------------------------
+    points = plane.points             # (N, 3)
+    normals = plane.normals           # (N, 3)
+
+    dx = np.linalg.norm(points[1] - points[0])
+    dA = dx * dx                      # Scalar area element (uniform)
+
+    #---------------------------------------------------------------------
+    # Evaluate scattered fields: (2, M, N, 3)
+    #---------------------------------------------------------------------
+    E, H = compute_linear_combinations(points, int_coeff, InteriorDipoles) #E and H (R,N,3) each
+    
+    R, N , _ = np.shape(E)
+    Cross = 0.5 * np.cross(E, np.conjugate(H)) # (R,N,3)
+
+    integrands = np.einsum("rnk,nk->rn", Cross,normals) # (R,N)
+    #Integral calculation
+    integrals = np.einsum("rn -> r", integrands*dA)    # (R,)
+    print(f"integration_time: {time.time()-int_start}")
+    return integrals 
+
+def Single_scatter_solver(Scatter_information, Incident_configurations):
+    """
+    Solves the forward problem for a specified scatterer and multiple sets of incident waves sorted by wavelength.
+
+    Returns:
+        DataFrame with columns:
+            - wavelength: float
+            - propagation_vector: (3,) ndarray
+            - polarization: float
+            - flux: float
+    """
+    SPSurface = Scatter_information['SPSurface']
+    all_data = []
+
+    z_height = 10 * np.max(SPSurface.z_fine) + 1
+    Plane = SP.generate_plane_xy(z_height, SPSurface.a, SPSurface.b, 30)
+
+    for idx, inc_lam in enumerate(Incident_configurations):
+        print(f"\nComputing incident information number {idx+1}/{len(Incident_configurations)}, wavelength: {inc_lam['lambda']:.4f}")
+        total_time = time.time()
+
+        # Solve MAS system
+        int_coeffs, _, InteriorDipoles, _ = Construct_solve_MAS_system(Scatter_information, inc_lam)
+
+        # Compute power flux for each incident wave
+        flux_values = compute_flux_integral_scattered_field(Plane, int_coeffs, InteriorDipoles)  # shape: (R,)
+
+        # Store data for each plane wave (R incident waves per config)
+        wavelength = inc_lam['lambda']
+        propagation_vectors = inc_lam['propagation_vectors']  # shape: (R, 3)
+        polarizations = inc_lam['polarizations']              # shape: (R,)
+
+        for i in range(len(flux_values)):
+            all_data.append({
+                'wavelength': wavelength,
+                'propagation_vector': propagation_vectors[i],
+                'polarization': polarizations[i],
+                'flux': flux_values[i].real  # drop imaginary part if negligible
+            })
+
+        print(f"Total time: {time.time() - total_time:.3f} s")
+
+    # Create dataframe
+    df = pd.DataFrame(all_data, columns=['wavelength', 'propagation_vector', 'polarization', 'flux'])
+    return df       
+        
+    
+
 
 def check_transmission_conditions(Scatter_information,Incident_information):
     int_coeffs, ext_coeffs, InteriorDipoles, ExteriorDipoles=Construct_solve_MAS_system(Scatter_information,Incident_information)
     SPSurface=Scatter_information['SPSurface']
-    testpoints, tau_1, tau_2, _=SPSurface.construct_auxiliary_points(20,0)
+    testpoints, tau_1, tau_2, _=SPSurface.construct_auxiliary_points(10,0)
 
     propagation_vectors = Incident_information['propagation_vectors']  # shape (R, 3)
     polarizations = Incident_information['polarizations']              # shape (R,)
@@ -271,21 +362,24 @@ def check_transmission_conditions(Scatter_information,Incident_information):
     M2=np.einsum("rnk,nk->rn",E_scat-E_tot+E_inc,tau_2) # (R,N)
     M3=np.einsum("rnk,nk->rn",H_scat-H_tot+H_inc,tau_1) # (R,N)
     M4=np.einsum("rnk,nk->rn",H_scat-H_tot+H_inc,tau_2) # (R,N)
-    M=np.hstack([M1,M2,M3,M4]) #(R,4N) each row is now the error for incident wave r
-
+    M=np.hstack([M1,M2,M3,M4])[0] #(R,4N) each row is now the error for incident wave r
     I1=np.einsum("rnk,nk->rn",-E_inc,tau_1) # (R,N) #changed order of tau
     I2=np.einsum("rnk,nk->rn",-E_inc,tau_2) # (R,N)
     I3=np.einsum("rnk,nk->rn",-H_inc,tau_1) # (R,N)
     I4=np.einsum("rnk,nk->rn",-H_inc,tau_2) # (R,N)
-    I=np.hstack([I1,I2,I3,I4])
-    plt.imshow(np.abs(M))
-    plt.colorbar()
-    plt.show()
-    
-    #plt.plot(np.real(M[499,:]))
-    #plt.plot(np.real(I[499,:]))
+    I=np.hstack([I1,I2,I3,I4])[0]
+
+    ST1=np.einsum("rnk,nk->rn",E_scat-E_tot,tau_1) # (R,N)
+    ST2=np.einsum("rnk,nk->rn",E_scat-E_tot,tau_2) # (R,N)
+    ST3=np.einsum("rnk,nk->rn",H_scat-H_tot,tau_1) # (R,N)
+    ST4=np.einsum("rnk,nk->rn",H_scat-H_tot,tau_2) # (R,N)
+    ST=np.hstack([ST1,ST2,ST3,ST4])[0] #(R,4N) each row is now the error for incident wave r
+    #plt.plot(ST,'-o',label='Scat-tot',)
+    #plt.plot(I,'-o', label='inc')
+    #plt.legend()
     #plt.show()
-    
+    return np.linalg.norm(M,2) /np.linalg.norm(I,2)
+
 def create_surface_and_scattering_info_from_json(json_path):
     with open(json_path, 'r') as f:
         params = json.load(f)
@@ -315,41 +409,78 @@ def create_surface_and_scattering_info_from_json(json_path):
         )
 
     Z = surface_function(X, Y)
-    #Z = np.ones_like(X)
+    Z = np.zeros_like(X)
+    for s in np.linspace(10,0.5,10):
+        Surface=SP.SplineSurface(X,Y,Z,smoothness=s)
+        if False:
+            fig, axs = plt.subplots(1, 2, figsize=(12, 6))
 
-    Surface=SP.SplineSurface(X,Y,Z)
-    
-    #Surface.plot_surface_with_vectors(resolution=5)
+            cont1 = axs[0].contourf(X, Y, Z, levels=100, cmap='viridis')
+            axs[0].set_title("Original Surface")
+            axs[0].set_aspect('equal')
 
-    Scatterinformation = {
-        'SPSurface': Surface,
-        'epsilon': scatter_epsilon,
-        'mu': mu
-    }
+            #Surface.plot_surface_with_vectors(resolution=8)
+            points,_,_,_=Surface.construct_auxiliary_points(100,0)
+            X_aux,Y_aux,Z_aux=points[:,0],points[:,1],points[:,2]
+            X_aux,Y_aux,Z_aux=np.reshape(X_aux,[100,100]),np.reshape(Y_aux,[100,100]),np.reshape(Z_aux,[100,100])
 
-    # -------------------------
-    # Incident information
-    # -------------------------
-    k = np.array(params['k'])
-    betas = np.array(params['betas'])
-    betas= np.linspace(0,np.pi/2,500)
-    wavelength = 2 * np.pi / params['omega']
-    epsilon_air = 1
-    number = len(betas)
+            cont2 = axs[1].contourf(X_aux, Y_aux, Z_aux, levels=100, cmap='viridis')
+            axs[1].set_title("Spline Surface (Auxiliary Points)")
+            axs[1].set_aspect('equal')
+            cbar = fig.colorbar(cont2, ax=axs, orientation='vertical', shrink=0.9, pad=0.05)
+            cbar.set_label("Z-value")
+            plt.show()
+        Scatterinformation = {
+            'SPSurface': Surface,
+            'epsilon': scatter_epsilon,
+            'mu': mu
+        }
 
-    propagation_vector = np.tile(k, (number, 1))
-    polarization = betas
-    omega = params['omega']
+        # -------------------------
+        # Incident information
+        # -------------------------
+        max_errors=[]
+        wavelengths=[]
+        compute_times=[]
+        for omega in np.linspace(np.pi,4*np.pi,10):
+            k = np.array(params['k'])
+            betas = np.array(params['betas'])
+            betas= np.linspace(0,np.pi/2,1)
+            epsilon_air = 1
+            number = len(betas)
 
-    Incidentinformation = {
-        'propagation_vectors': propagation_vector,
-        'polarizations': polarization,
-        'epsilon': epsilon_air,
-        'mu': mu,
-        'lambda': wavelength,
-        'omega': omega
-    }
-    
-    check_transmission_conditions(Scatterinformation,Incidentinformation)
+            propagation_vector = np.tile(k, (number, 1))
+            polarization = betas
+            #omega = params['omega']
+            wavelength = 2 * np.pi / omega
+            wavelengths.append(2/wavelength)
+            Incidentinformation = {
+                'propagation_vectors': propagation_vector,
+                'polarizations': polarization,
+                'epsilon': epsilon_air,
+                'mu': mu,
+                'lambda': wavelength,
+                'omega': omega
+            }
+            start=time.time()
+            relative_norm=check_transmission_conditions(Scatterinformation,Incidentinformation)
+            compute_time=time.time()-start
+            max_errors.append(relative_norm)
+            compute_times.append(compute_time)
+        plt.plot(wavelengths, max_errors, '-o', label=f"s={s:.1f}")
+        plt.savefig(f'Transmission_error_{s:.1f}.png')
+    plt.xlabel("length of scattering object / wavelength")
+    plt.ylabel("||E^tot||_2/||E^inc||_2")
+    plt.legend()
+    plt.title("Transmission Error vs Wavelength for Different Smoothness")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("multiple_error.png")
+    plt.show()
 
+    #check_transmission_conditions(Scatterinformation,Incidentinformation)
+    #df=Single_scatter_solver(Scatterinformation,[Incidentinformation])
+    #flux=df['flux'].values
+    #plt.plot(betas,flux/np.linalg.norm(flux,2))
+    #plt.show()
 create_surface_and_scattering_info_from_json('surfaceParamsNormal-4.json')

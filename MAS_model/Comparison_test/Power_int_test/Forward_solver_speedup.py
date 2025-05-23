@@ -397,12 +397,19 @@ def create_surface_and_scattering_info_from_json(json_path):
         )
 
     Z = surface_function(X, Y)
-    #Z = np.ones_like(X)
+    plt.contourf(X,Y,Z)
+    plt.show()
+    #plt.imshow(Z)
+    #plt.show()
 
     Surface=SP.SplineSurface(X,Y,Z)
     
-    Surface.plot_surface_with_vectors(resolution=5)
-
+    #Surface.plot_surface_with_vectors(resolution=5)
+    points,_,_,_=Surface.construct_auxiliary_points(100,0)
+    X,Y,Z=points[:,0],points[:,1],points[:,2]
+    X,Y,Z=np.reshape(X,[100,100]),np.reshape(Y,[100,100]),np.reshape(Z,[100,100])
+    plt.contourf(X,Y,Z)
+    plt.show()
     Scatterinformation = {
         'Surface': Surface,
         'epsilon': scatter_epsilon,
@@ -445,5 +452,5 @@ def create_surface_and_scattering_info_from_json(json_path):
     #options['plane_location']=-10
     #Single_scatter_solver(Scatterinformation,Incidentinformations,options)
 
-create_surface_and_scattering_info_from_json('surfaceParamsNormal-4.json')
+create_surface_and_scattering_info_from_json('surfaceParamsNormalNewGeom.json')
 

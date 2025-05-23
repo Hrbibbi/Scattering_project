@@ -3,12 +3,20 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import bisplrep, bisplev
 
 class SplineSurface:
-    def __init__(self, x_fine, y_fine, z_fine):
+    def __init__(self, x_fine, y_fine, z_fine,smoothness=0.5):
         # Ensure x_fine and y_fine are 2D and meshgridded
         self.x_fine = x_fine
         self.y_fine = y_fine
         self.z_fine = z_fine
-        self.tck = bisplrep(x_fine.ravel(), y_fine.ravel(), z_fine.ravel())
+        print("here")
+        m=np.sqrt(len(x_fine.ravel()))
+        print(m-np.sqrt(2*m))
+        self.tck,fp,ier,msg = bisplrep(x_fine.ravel(), y_fine.ravel(), z_fine.ravel(),full_output=1,s=smoothness)
+        print("there")
+        print(ier)
+        print(msg)
+        tx,ty,c,kx,ky=self.tck
+        print(len(tx))
         self.size=self.x_fine.max()-self.x_fine.min()
         self.max_mean_curvature = self._compute_max_mean_curvature()
 
