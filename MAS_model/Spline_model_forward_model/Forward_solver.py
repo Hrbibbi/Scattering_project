@@ -141,7 +141,7 @@ def construct_matrix(Surface, inneraux, outeraux, mu, air_epsilon, scatter_epsil
 
     return MAS, intDP1, intDP2, extDP1, extDP2
 
-def Construct_solve_MAS_system(Scatter_information, Incident_information):
+def Construct_solve_MAS_system(Scatter_information, Incident_information,fixed_offset=0):
     '''
     Solves the MAS system for multiple plane wave excitations (same omega, lambda, mu, epsilon). for all planewaves
 
@@ -183,7 +183,7 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information):
     #-------------------------------------------------------------
     # Construct testpoints and auxilary surfaces
     #-------------------------------------------------------------
-    Surface,inneraux,outeraux=SPSurface.sample_surface_MAS(lam)
+    Surface,inneraux,outeraux=SPSurface.sample_surface_MAS(lam,fixed_offset)
     M=np.shape(inneraux.points)[0]
     N=np.shape(Surface.points)[0]
     R=len(polarizations)
@@ -225,7 +225,7 @@ def Construct_solve_MAS_system(Scatter_information, Incident_information):
     InteriorDipoles = [intDP1, intDP2]
     ExteriorDipoles = [extDP1, extDP2]
 
-    return int_coeffs, ext_coeffs, InteriorDipoles, ExteriorDipoles
+    return int_coeffs, ext_coeffs, InteriorDipoles, ExteriorDipoles,[MAS_matrix,RHS_matrix,C_matrix]
 
 def compute_linear_combinations(points, coeffs, dipoles):
     """
@@ -339,13 +339,10 @@ def Single_scatter_solver(Scatter_information, Incident_configurations):
     df = pd.DataFrame(all_data, columns=['wavelength', 'propagation_vector', 'polarization', 'flux'])
     return df       
         
-    
-
-
 def check_transmission_conditions(Scatter_information,Incident_information):
-    int_coeffs, ext_coeffs, InteriorDipoles, ExteriorDipoles=Construct_solve_MAS_system(Scatter_information,Incident_information)
+    int_coeffs, ext_coeffs, InteriorDipoles, ExteriorDipoles,_=Construct_solve_MAS_system(Scatter_information,Incident_information)
     SPSurface=Scatter_information['SPSurface']
-    testpoints, tau_1, tau_2, _=SPSurface.construct_auxiliary_points(10,0)
+    testpoints, tau_1, tau_2, _=SPSurface.construct_auxiliary_points(100,0)
 
     propagation_vectors = Incident_information['propagation_vectors']  # shape (R, 3)
     polarizations = Incident_information['polarizations']              # shape (R,)
@@ -483,4 +480,70 @@ def create_surface_and_scattering_info_from_json(json_path):
     #flux=df['flux'].values
     #plt.plot(betas,flux/np.linalg.norm(flux,2))
     #plt.show()
-create_surface_and_scattering_info_from_json('surfaceParamsNormal-4.json')
+
+def MAS_system_from_json(json_path, output_prefix='surface_data',fixed_offset=0):
+    import json
+    import numpy as np
+    import pandas as pd
+
+    with open(json_path, 'r') as f:
+        params = json.load(f)
+
+    width = params['halfWidth_x']
+    resol = params['resolution']
+    alpha = params['alpha']
+    bump_params = params['bumpData']
+    scatter_epsilon = params['epsilon1']
+    mu = 1  # Assumed constant
+    lam = params['minLambda'] #lam=0.7
+
+    # Surface creation
+    a, b = -width, width
+    X0 = np.linspace(a, b, resol)
+    Y0 = np.linspace(a, b, resol)
+    X, Y = np.meshgrid(X0, Y0)
+
+    def bump(x, y, x0, y0, height, sigma):
+        return height * np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2))
+
+    def surface_function(x, y):
+        return sum(
+            bump(x, y, b['x0'], b['y0'], b['height'], b['sigma'])
+            for b in bump_params
+        )
+    Z= np.zeros_like(X)
+    Z += surface_function(X, Y)
+    plt.contourf(X,Y,Z)
+    plt.show()
+    Surface=SP.SplineSurface(X,Y,Z,smoothness=0.5)
+    Scatterinformation = {
+    'SPSurface': Surface,
+    'epsilon': scatter_epsilon,
+    'mu': mu
+    }
+    propagation_vector = np.array([[0,0,-1]])
+    polarization=np.array([0])
+    epsilon_air = 1
+    wavelength=0.7
+    omega=2*np.pi/wavelength
+    Incidentinformation = {
+    'propagation_vectors': propagation_vector,
+    'polarizations': polarization,
+    'epsilon': epsilon_air,
+    'mu': mu,
+    'lambda': wavelength,
+    'omega': omega
+    }
+    int_coeffs, ext_coeffs, InteriorDipoles, ExteriorDipoles,sys_info=Construct_solve_MAS_system(Scatterinformation,Incidentinformation,fixed_offset=fixed_offset)
+    MAS_matrix,RHS_matrix,C_matrix=sys_info
+    pd.DataFrame(MAS_matrix).to_csv(f"{output_prefix}_A.csv", index=False, header=False)
+    pd.DataFrame(RHS_matrix).to_csv(f"{output_prefix}_b.csv", index=False, header=False)
+    pd.DataFrame(C_matrix).to_csv(f"{output_prefix}_c.csv", index=False, header=False)
+#MAS_system_from_json('surfaceParamsOne.json',output_prefix='MASOne_014',fixed_offset=0.14)
+#MAS_system_from_json('surfaceParamsOne.json',output_prefix='MASOne_0014',fixed_offset=0.014)
+#MAS_system_from_json('surfaceParamsZero.json',output_prefix='MASZero_014',fixed_offset=0.14)
+#MAS_system_from_json('surfaceParamsZero.json',output_prefix='MASZero_0014',fixed_offset=0.014)
+#MAS_system_from_json('surfaceParamsTen.json',output_prefix='MASTen_014',fixed_offset=0.14)
+#MAS_system_from_json('surfaceParamsTen.json',output_prefix='MASTen_0014',fixed_offset=0.014)
+create_surface_and_scattering_info_from_json('surfaceParamsOne.json')
+

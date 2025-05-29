@@ -1,0 +1,24 @@
+{
+    "bumpData": [],
+    "monitor_size": 1,
+    "seed": 42,
+    "halfWidth_x": 1.0,
+    "halfWidth_y": 1.0,
+    "halfWidth_z": 2.0,
+    "resolution": 10,
+    "pml_thickness": 2,
+    "omega": 1.0,
+    "epsilon1": 2.56,
+    "k": [
+        0.0,
+        0.0,
+        -1.0
+    ],
+    "betas": [
+        0.0
+    ],
+    "alpha": 0.86,
+    "lambda_n": 1,
+    "minLambda": 0.7,
+    "maxLambda": 0.7
+}

@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.gaussian_process.kernels import Matern
 import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation
 
 def cylinder_cartesian_grid(height, radius,offset=[0,0], numpoints_xy=10, numpoints_z=10):
     """
@@ -71,30 +72,35 @@ def generate_sample(GP_factorization):
     
     return GP_factorization @ Normal_sample
 
-def generate_tensor_sample(GP_factorization):
+def generate_rotation_tensor_sample(GP_factorization):
     '''
-    Generate a sample of a symmetric 3x3 tensor field from a Gaussian Process.
+    Generate a sample of a 3x3 rotation matrix field from a Gaussian Process
+    over 3 Euler angle fields (ZYX convention).
 
     Input:
         GP_factorization: (N, N) Cholesky factor of the covariance matrix
-    
+
     Output:
-        alpha: (N, 3, 3) array representing the full tensor at each of N points
+        alpha: (N, 3, 3) array of rotation matrices at N points
+        euler_angles: (N, 3) array of Euler angles [phi, theta, psi] at each point
     '''
     N = GP_factorization.shape[0]
 
-    # Sample 9 independent GP coefficient vectors (one for each tensor entry)
-    alpha = np.empty((N, 3, 3), dtype=np.float64)
-
+    # Step 1: Sample 3 independent GP fields for Euler angles
+    angles = np.empty((N, 3), dtype=np.float64)
     for i in range(3):
-        for j in range(3):
-            normal_sample = np.random.normal(size=N)
-            alpha[:, i, j] = GP_factorization @ normal_sample
-    
-    return alpha
+        normal_sample = np.random.normal(size=N)
+        angles[:, i] = GP_factorization @ normal_sample
+
+    # Step 2: Convert Euler angles to rotation matrices
+    # Convention: ZYX (yaw-pitch-roll)
+    rotations = Rotation.from_euler('zyx', angles, degrees=False)
+    alpha = rotations.as_matrix()  # (N, 3, 3)
+
+    return alpha, angles
 
 class Domain:
-    def __init__(self,X,Y,Z,alpha):
+    def __init__(self,X,Y,Z,alpha,angles):
         self.X=X
         self.Y=Y
         self.Z=Z
@@ -104,4 +110,7 @@ class Domain:
 
         self.points=np.column_stack([X_flat,Y_flat,Z_flat])
         self.alpha_tensor=alpha
+        self.yaw  =angles[:,0]
+        self.pitch=angles[:,1]
+        self.roll =angles[:,2]
 

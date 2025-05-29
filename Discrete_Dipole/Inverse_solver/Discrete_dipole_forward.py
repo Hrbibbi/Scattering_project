@@ -3,6 +3,31 @@ import Domains as DS
 import numpy as np
 from numba import njit, prange
 
+def compute_dipole_polarizations(domain,Incident_waves,epsilon_substrate):
+    '''
+    Computes the polarization vectors for the dipoles
+
+        Input:
+            Domain: domain class storing the rotation matrices and points
+            Incident_waves: planewave class storing incident waves calculations
+        output:
+            (R,M,3) numpy array with the polarization vectors for the r'th incident wave for the m'th dipole
+    '''
+
+    points=domain.points
+    E_new,H_new=PW.evaluate_incident_plus_reflected(Incident_waves,epsilon_substrate,points)
+
+    alpha=domain.alpha_tensor
+
+    Pol_tensor = np.einsum('mij,rmj->rmi',alpha,E_new) #R,M,3
+
+
+    return Pol_tensor
+
+
+
+
+
 @njit(parallel=True)
 def batched_cross(a, b):
     """
@@ -26,8 +51,6 @@ def batched_cross(a, b):
                 result[r, n, m, 2] = ax * by - ay * bx
 
     return result
-
-
 
 
 
@@ -75,7 +98,7 @@ def compute_scattered_field_at_points(points,Incident_waves,domain,epsilon_subst
 
     #Compute the matrix vector product P_{r,i} = alpha_i @ E_new_{r,i} 
     #resulting in R,M,3 array polarization vector for dipole i given incident wave R
-    print(f"Compution polarization tensors")
+    print(f"Computio    n polarization tensors")
     Pol_tensor = np.einsum('mij,rmj->rmi',alpha,E_new) #R,M,3
     print(f"size of polarization tensor: {np.shape(Pol_tensor)}")
     R,_,_=np.shape(Pol_tensor)
@@ -134,6 +157,5 @@ def test():
     test_points=np.column_stack([X.ravel(),Y.ravel(),Z.ravel()])
     for i in range(100):
         compute_scattered_field_at_points(test_points,PW1,domain,2)
-
 
 test()

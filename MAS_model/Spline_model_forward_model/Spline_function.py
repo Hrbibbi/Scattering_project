@@ -26,8 +26,10 @@ class SplineSurface:
         # Accept 1D input arrays and use meshgrid internally
         return np.array(bisplev(x, y, self.tck, dx=dx, dy=dy))
 
-    def _compute_max_mean_curvature(self, resolution=100): #change to do on finest resultion
+    def _compute_max_mean_curvature(self, resolution=None): #change to do on finest resultion
         # Uniform grid in parameter space
+        if resolution==None:
+            resolution=len(self.x_fine)
         x = np.linspace(self.x_fine.min(), self.x_fine.max(), resolution)
         y = np.linspace(self.y_fine.min(), self.y_fine.max(), resolution)
 
@@ -48,7 +50,7 @@ class SplineSurface:
         H = numer / (2 * denom)
         return np.max(np.abs(H))
 
-    def construct_auxiliary_points(self, resolution, scale):
+    def construct_auxiliary_points(self, resolution, scale,fixed_offset=0):
         x = np.linspace(self.x_fine.min(), self.x_fine.max(), resolution)
         y = np.linspace(self.y_fine.min(), self.y_fine.max(), resolution)
         X, Y = np.meshgrid(x, y, indexing='ij')
@@ -69,17 +71,31 @@ class SplineSurface:
         normals /= np.linalg.norm(normals, axis=-1, keepdims=True)
 
         points = np.stack([X, Y, Z], axis=-1).reshape(-1, 3)
-        offset = (scale / self.max_mean_curvature) * normals.reshape(-1, 3) #scale/max_man = 0.14 og 0.014
+        
+        #----------------------------------------------------------------------
+        # offset changes set to fixed number if specified
+        #----------------------------------------------------------------------
+        if fixed_offset==0:
+            print("not fixed")
+            if self.max_mean_curvature==0:
+                offset = scale * normals.reshape(-1, 3)
+            else:
+                offset = (scale / self.max_mean_curvature) * normals.reshape(-1, 3) #scale/max_man = 0.14 og 0.014
+        else:
+            print("fixed")
+            offset = fixed_offset * normals.reshape(-1, 3)
+            
+        
         auxiliary_points = points + offset
 
         return auxiliary_points, tau_x.reshape(-1, 3), tau_y.reshape(-1, 3), normals.reshape(-1, 3)
 
-    def sample_surface_MAS(self,wavelength):
+    def sample_surface_MAS(self,wavelength,fixed_offset=0):
         scale=self.size/wavelength
-        surface_resol=int(np.ceil(np.sqrt(2)*5*scale))
-        auxiliary_resol=int(np.ceil(5*scale))
-        inner_points  , tau1_inner, tau2_inner, normals_inner=self.construct_auxiliary_points(auxiliary_resol, -0.14)
-        outer_points  , tau1_outer, tau2_outer, normals_outer=self.construct_auxiliary_points(auxiliary_resol,  0.14    )
+        surface_resol=int(np.ceil(np.sqrt(2)*5*scale)) #maybe increase
+        auxiliary_resol=int(np.ceil(5*scale)) #maybe increase
+        inner_points  , tau1_inner, tau2_inner, normals_inner=self.construct_auxiliary_points(auxiliary_resol, -0.14,fixed_offset=-fixed_offset)
+        outer_points  , tau1_outer, tau2_outer, normals_outer=self.construct_auxiliary_points(auxiliary_resol,  0.14,fixed_offset=fixed_offset)
         surface_points, tau1_surf , tau2_surf , normals_surf =self.construct_auxiliary_points(surface_resol  ,  0.00)
 
         inneraux=C2_surface(inner_points,normals_inner,tau1_inner,tau2_inner)
@@ -151,7 +167,7 @@ def generate_plane_xy(height,a,b,numpoints):
     tau2=normals
     return C2_surface(points,normals,tau1,tau2)
 
-def surface_from_json(json_path, output_prefix='surface_data'):
+def surface_from_json(json_path, output_prefix='surface_data',fixed_offset=0):
     import json
     import numpy as np
     import pandas as pd
@@ -183,9 +199,10 @@ def surface_from_json(json_path, output_prefix='surface_data'):
         )
 
     Z = surface_function(X, Y)
+    #Z = np.zeros_like(X)
     SPSurface = SplineSurface(X, Y, Z)
-    print(SPSurface.max_mean_curvature)
-    surface, inneraux, outeraux = SPSurface.sample_surface_MAS(lam)
+
+    surface, inneraux, outeraux = SPSurface.sample_surface_MAS(lam,fixed_offset=fixed_offset)
 
     def save_surface_to_csv(surf_obj, filename):
         data = np.hstack([surf_obj.points, surf_obj.tau1, surf_obj.tau2, surf_obj.normals])
@@ -200,4 +217,4 @@ def surface_from_json(json_path, output_prefix='surface_data'):
     save_surface_to_csv(inneraux, f'{output_prefix}_inneraux.csv')
     save_surface_to_csv(outeraux, f'{output_prefix}_outeraux.csv')
 
-surface_from_json('surfaceParamsNormalNewGeom.json')
+#surface_from_json('surfaceParamsTen.json',output_prefix='surfaceTen_0014',fixed_offset=0.014)
