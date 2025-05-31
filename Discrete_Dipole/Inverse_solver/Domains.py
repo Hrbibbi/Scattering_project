@@ -32,8 +32,6 @@ def cylinder_cartesian_grid(height, radius,offset=[0,0], numpoints_xy=10, numpoi
     
     return Xf[mask]-x0, Yf[mask]-y0, Zf[mask]
 
-X, Y, Z = cylinder_cartesian_grid(height=1.0, radius=0.5, numpoints_xy=20, numpoints_z=20)
-
 def matern_covariance_matrix(X, Y, Z, kernel=None):
     """
     Compute the Matern covariance matrix for 3D points inside a cylinder.

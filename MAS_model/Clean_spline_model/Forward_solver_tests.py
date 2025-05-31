@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import Spline_function as SP
 import json
 import os
+import time
 
 def bump_function_wrapper(json_path):
     with open(json_path, 'r') as f:
@@ -44,15 +45,21 @@ def check_transmission_conditions(Scatter_information,Incident_information,plott
     #surface stuff
     int_coeffs, ext_coeffs, InteriorDipoles, ExteriorDipoles=FW.Construct_solve_MAS_system(Scatter_information,Incident_information,dipoles_per_wl=dipoles_per_wl,scaling=scaling)
     SPSurface=Scatter_information['SPSurface']
-    testpoints, tau_1, tau_2, _=SPSurface.construct_auxiliary_points(100,0)
-
+    lam = Incident_information['lambda']
+    resol=SPSurface.fine_resol
+    scale=SPSurface.size/lam
+    M=2*dipoles_per_wl
+    surface_resol=int(np.ceil(np.sqrt(2)*M*scale))
+    testpoints, tau_1, tau_2, _=SPSurface.construct_auxiliary_points(surface_resol,0)
+    print(f"num testpoints: {np.shape(testpoints)}")
+    time.sleep(1)
     #incident stuff
     propagation_vectors = Incident_information['propagation_vectors']  # shape (R, 3)
     polarizations = Incident_information['polarizations']              # shape (R,)
     epsilon_air = Incident_information['epsilon']
     mu = Incident_information['mu']
     omega = Incident_information['omega']
-    lam = Incident_information['lambda']
+    
     planewaves = PW.Plane_wave(propagation_vectors, polarizations, epsilon_air, mu, omega)
 
     E_scat,H_scat=FW.compute_linear_combinations(testpoints,int_coeffs,InteriorDipoles) #(R,N,3)
@@ -63,14 +70,14 @@ def check_transmission_conditions(Scatter_information,Incident_information,plott
         STI2=np.einsum("rnk,nk->rn",E_field,tau_2)  # (R,N)
         STI3=np.einsum("rnk,nk->rn",H_field,tau_1)  # (R,N)
         STI4=np.einsum("rnk,nk->rn",H_field,tau_2)  # (R,N)
-        return np.hstack([STI1,STI2,STI3,STI4])[0]
+        return STI1,STI2,STI3,STI4
    
-    STinc=einsumming(E_scat-E_tot+E_inc,H_scat-H_tot+H_inc)
-    ST=einsumming(E_scat-E_tot,H_scat-H_tot)
-    inc=einsumming(-E_inc,-H_inc)
+    STinc1,STinc2,STinc3,STinc4=einsumming(E_scat-E_tot+E_inc,H_scat-H_tot+H_inc)
+    ST1,ST2,ST3,ST4=einsumming(E_scat-E_tot,H_scat-H_tot)
+    inc1,inc2,inc3,inc4=einsumming(-E_inc,-H_inc)
     E_scat=E_scat[0]
     E_tot=E_tot[0]
-    if plotting:
+    if False: #wait with this we just want the other to work
         fig, axes = plt.subplots(2, 2, figsize=(12, 5))
 
         # Top-left: Difference in transmission conditions (E_tot⁺ - E_tot⁻)
@@ -102,31 +109,41 @@ def check_transmission_conditions(Scatter_information,Incident_information,plott
         plt.tight_layout()
         plt.savefig(f"transmission_error_scaling_{scaling}.png")
         plt.show()
-    return np.linalg.norm(STinc,2) /np.linalg.norm(inc,2)
+    e1=np.linalg.norm(STinc1,2) /np.linalg.norm(inc1,2)
+    e2=np.linalg.norm(STinc2,2) /np.linalg.norm(inc2,2)
+    e3=np.linalg.norm(STinc3,2) /np.linalg.norm(inc3,2)
+    e4=np.linalg.norm(STinc4,2) /np.linalg.norm(inc4,2)
+    return e1,e2,e3,e4
 
-def plot_transmission_scale_dipoles(json_path,output_folder="transmission_plots",output_name="bump_test",scaling=1.0):
-    X,Y,Z,scatter_epsilon,mu=bump_function_wrapper(json_path)
-    print("here")
-    Surface=SP.SplineSurface(X,Y,Z,smoothness=0.5)
-    print("surface created")
+def plot_transmission_scale_dipoles(json_path, output_folder="transmission_plots", output_name="bump_test", scaling=1.0):
+    X, Y, Z, scatter_epsilon, mu = bump_function_wrapper(json_path)
+    Surface = SP.SplineSurface(X, Y, Z, smoothness=0.5)
+
     Scatterinformation = {
-    'SPSurface': Surface,
-    'epsilon': scatter_epsilon,
-    'mu': mu
+        'SPSurface': Surface,
+        'epsilon': scatter_epsilon,
+        'mu': mu
     }
-    dipole_range = [5,6,7]
-    wavelength_range = np.linspace(1, 0.5, 10)
+
+    dipole_range = [5,6,7,8]
+    wavelength_range = np.linspace(1, 0.4, 10)
 
     all_scales = []
-    all_errors = []
+    all_errors_e1 = []
+    all_errors_e2 = []
+    all_errors_e3 = []
+    all_errors_e4 = []
 
     for dipoles_pr_wl in dipole_range:
         scales = []
-        relative_errors = []
+        errors_e1 = []
+        errors_e2 = []
+        errors_e3 = []
+        errors_e4 = []
 
         for wavelength in wavelength_range:
             propagation_vector = np.array([[0, 0, -1]])
-            polarization = np.array([0])
+            polarization = np.array([np.pi/4])
             epsilon_air = 1
             omega = 2 * np.pi / wavelength
             wavelength_scale = Surface.size / wavelength
@@ -140,7 +157,7 @@ def plot_transmission_scale_dipoles(json_path,output_folder="transmission_plots"
                 'omega': omega
             }
 
-            rel_error = check_transmission_conditions(
+            rel_error1, rel_error2, rel_error3, rel_error4 = check_transmission_conditions(
                 Scatterinformation,
                 Incidentinformation,
                 plotting=False,
@@ -149,34 +166,70 @@ def plot_transmission_scale_dipoles(json_path,output_folder="transmission_plots"
             )
 
             scales.append(wavelength_scale)
-            relative_errors.append(rel_error)
+            errors_e1.append(rel_error1)
+            errors_e2.append(rel_error2)
+            errors_e3.append(rel_error3)
+            errors_e4.append(rel_error4)
 
         all_scales.append(scales)
-        all_errors.append(relative_errors)
+        all_errors_e1.append(errors_e1)
+        all_errors_e2.append(errors_e2)
+        all_errors_e3.append(errors_e3)
+        all_errors_e4.append(errors_e4)
 
+    # Compute global max for y-limits
+    max_error = max([
+        np.max(all_errors_e1),
+        np.max(all_errors_e2),
+        np.max(all_errors_e3),
+        np.max(all_errors_e4)
+    ])
+    np.save('scales.npy',np.array([scales]))
+    np.save('e1.npy',np.array([all_errors_e1]))
+    np.save('e2.npy',np.array([all_errors_e2]))
+    np.save('e3.npy',np.array([all_errors_e3]))
+    np.save('e4.npy',np.array([all_errors_e4]))
     # Evaluate surface height for contour plot
     x0 = np.linspace(Surface.a, Surface.b, Surface.fine_resol)
     z_eval = Surface._evaluate_spline(x0, x0)
 
-    # Create subplots
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    # Create figure and 8x4 GridSpec layout
+    fig = plt.figure(figsize=(14, 12))
+    gs = fig.add_gridspec(2, 2)
 
-    # Subplot 1: Surface height contour
-    cf = axes[0].contourf(Surface.x_fine, Surface.y_fine, z_eval, cmap='viridis')
-    fig.colorbar(cf, ax=axes[0])
-    axes[0].set_title('Surface Height')
-    axes[0].set_xlabel('x')
-    axes[0].set_ylabel('y')
+    # Contour plot spans 2 rows x 2 columns (top left)
+    #ax0 = fig.add_subplot(gs[0:3, :])
+    #cf = ax0.contourf(Surface.x_fine, Surface.y_fine, z_eval, cmap='viridis')
+    #ax0.set_title('Surface')
+    #ax0.set_xlabel('x')
+    #ax0.set_ylabel('y')
+    #fig.colorbar(cf, ax=ax0)
 
-    # Subplot 2: Multiple relative error curves
-    for scales, errors, dpw in zip(all_scales, all_errors, dipole_range):
-        axes[1].plot(scales, errors, marker='o', label=f'{dpw} dip./λ')
+    # Define 4 smaller subplots in rows below
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[1, 0])
+    ax3 = fig.add_subplot(gs[0, 1])
+    ax4 = fig.add_subplot(gs[1, 1])
 
-    axes[1].set_xlabel('Wavelength Scale (Surface size / λ)')
-    axes[1].set_ylabel('||E^scat+E^inc-E^tot||/||E^inc||')
-    axes[1].set_title('Error vs. Wavelength Scale')
-    axes[1].legend()
-    axes[1].grid(True)
+    axes = [ax1, ax2, ax3, ax4]
+    titles = [
+        r'$||\tau_1 \cdot (E^{\mathrm{scat}} + E^{\mathrm{inc}} - E^{\mathrm{tot}})|| / ||\tau_1 \cdot E^{\mathrm{inc}}||$',
+        r'$||\tau_2 \cdot (E^{\mathrm{scat}} + E^{\mathrm{inc}} - E^{\mathrm{tot}})|| / ||\tau_2 \cdot E^{\mathrm{inc}}||$',
+        r'$||\tau_1 \cdot (H^{\mathrm{scat}} + H^{\mathrm{inc}} - H^{\mathrm{tot}})|| / ||\tau_1 \cdot H^{\mathrm{inc}}||$',
+        r'$||\tau_2 \cdot (H^{\mathrm{scat}} + H^{\mathrm{inc}} - H^{\mathrm{tot}})|| / ||\tau_2 \cdot H^{\mathrm{inc}}||$'
+    ]
+    error_lists = [all_errors_e1, all_errors_e2, all_errors_e3, all_errors_e4]
+
+    for ax, errors, title in zip(axes, error_lists, titles):
+        for scales, errs, dpw in zip(all_scales, errors, dipole_range):
+            ax.plot(scales, errs, marker='o', label=f'{dpw} dip./λ')
+        ax.axhline(0.05, color='red', linestyle='--', linewidth=1)
+        ax.set_title(title)
+        ax.set_xlabel('Wavelength Scale (Surface size / λ)')
+        ax.set_ylabel('Relative Error')
+        ax.set_ylim(0, max_error * 1.05)
+        ax.legend()
+        ax.grid(True)
 
     fig.tight_layout()
 
@@ -315,14 +368,14 @@ def plot_surface(json_path):
     plt.colorbar()
     plt.show()
 if True:
-    scale=2
-    param="20"
-    plot_transmission_scale_dipoles(f"Json_files/surfaceParams{param}.json",output_name=f"{param}_bump",scaling=scale)
-    plot_MAS_system(f"Json_files/surfaceParams{param}.json",output_name=f"{param}_bump",scaling=scale)
-    plot_distance_matrix(f"Json_files/surfaceParams{param}.json",output_name=f"{param}_bump",scaling=scale)
-    plot_single_transmission_conditions(f"Json_files/surfaceParams{param}.json",output_name=f"{param}_bump",scaling=scale)
+    scale=1
+    param="Ten"
+    plot_transmission_scale_dipoles(f"Json_files/surfaceParams{param}.json",output_name=f"big_{param}_bump_withheu_5percent",scaling=scale)
+    #plot_MAS_system(f"Json_files/surfaceParams{param}.json",output_name=f"{param}_bump_outlierandz_mod2",scaling=scale)
+    #plot_distance_matrix(f"Json_files/surfaceParams{param}.json",output_name=f"{param}_bump",scaling=scale)
+    #plot_single_transmission_conditions(f"Json_files/surfaceParams{param}.json",output_name=f"{param}_bump_outlierandz_mod2",scaling=scale)
 
-#plot_surface("Json_files/surfaceParams200.json")
+#plot_surface("Json_files/surfaceParams100.json")
 #plot_single_transmission_conditions("Json_files/surfaceParamsTen.json",scaling=0.14)
 #plot_single_transmission_conditions("Json_files/surfaceParamsTen.json",scaling=1.00)
 #plot_single_transmission_conditions("Json_files/surfaceParamsTen.json",scaling=2.00)

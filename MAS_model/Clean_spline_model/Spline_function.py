@@ -87,6 +87,41 @@ class SplineSurface:
         surface_points, tau1_surf , tau2_surf , normals_surf =self.construct_auxiliary_points(surface_resol  ,  0.00)
 
         #----------------------------------------------------------------
+        # Ensure dipole placement is away
+        #----------------------------------------------------------------
+        if True:
+            z_max,z_min=np.max(surface_points[:,2]),np.min(surface_points[:,2])
+            height_scale=z_max-z_min
+            inner_points[:,2] -= height_scale/4
+            outer_points[:,2] += height_scale/4
+        if True:
+            #Take out the 95 percentile and above
+            from scipy.spatial.distance import cdist
+            inner_dist=cdist(inner_points,surface_points)
+            outer_dist=cdist(outer_points,surface_points)
+            min_inner_dist = np.min(inner_dist, axis=1)
+            min_outer_dist = np.min(outer_dist, axis=1)
+
+            # Compute 5th percentile cutoff (lowest 5% of distances are outliers)
+            inner_cutoff = np.percentile(min_inner_dist, 5)
+            outer_cutoff = np.percentile(min_outer_dist, 5)
+
+            # Keep points ABOVE the 5th percentile
+            inner_mask = min_inner_dist > inner_cutoff
+            outer_mask = min_outer_dist > outer_cutoff
+
+            # Filter points and corresponding tangents/normals
+            inner_points   = inner_points[inner_mask]
+            tau1_inner     = tau1_inner[inner_mask]
+            tau2_inner     = tau2_inner[inner_mask]
+            normals_inner  = normals_inner[inner_mask]
+
+            outer_points   = outer_points[outer_mask]
+            tau1_outer     = tau1_outer[outer_mask]
+            tau2_outer     = tau2_outer[outer_mask]
+            normals_outer  = normals_outer[outer_mask]
+
+        #----------------------------------------------------------------
         # Saving data as C2 surfaces
         #----------------------------------------------------------------
         inneraux=C2_surface(inner_points,normals_inner,tau1_inner,tau2_inner)
