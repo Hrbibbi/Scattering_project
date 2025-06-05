@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.gaussian_process.kernels import Matern
 import matplotlib.pyplot as plt
-from scipy.spatial.transform import Rotation
+from scipy.interpolate import griddata
 
 def cylinder_cartesian_grid(height, radius,offset=[0,0], numpoints_xy=10, numpoints_z=10):
     """
@@ -32,83 +32,77 @@ def cylinder_cartesian_grid(height, radius,offset=[0,0], numpoints_xy=10, numpoi
     
     return Xf[mask]-x0, Yf[mask]-y0, Zf[mask]
 
-def matern_covariance_matrix(X, Y, Z, kernel=None):
+def matern_covariance_matrix(X_samples, Y_samples, Z_samples, length_scale=1, nu=0.5, jitter=1e-6):
     """
-    Compute the Matern covariance matrix for 3D points inside a cylinder.
-
-    Parameters:
-        X, Y, Z (1D arrays): Coordinates of the points (same length N).
-        kernel (sklearn.gaussian_process.kernels.Matern or None): 
-            If None, a default Matern kernel is used (nu=1.5, length_scale=1.0).
+    Compute the Matern covariance matrix using strided sampling.
 
     Returns:
-        chol_fact (ndarray): cholesky factorization of  NxN covariance matrix.
+        chol_fact: (M, M) Cholesky factor of covariance matrix
+        X_samples, Y_samples, Z_samples: strided arrays of sampled coordinates
     """
-    points = np.column_stack((X, Y, Z))  # shape (N, 3)
 
-    # Use default Matern kernel if none provided
-    if kernel is None:
-        kernel = Matern(length_scale=1.0, nu=1.5)
+    points = np.column_stack((X_samples, Y_samples, Z_samples))  # shape (M, 3)
+    kernel = Matern(length_scale=length_scale, nu=nu)
+    K = kernel(points) + jitter * np.eye(len(points))
 
-    # Compute covariance matrix
-    K = kernel(points)
-    chol_fact=np.linalg.cholesky(K)
+    chol_fact = np.linalg.cholesky(K)
     return chol_fact
 
-def generate_sample(GP_factorization):
-    '''
-    Function that generates a sample from the Gaussian process
+def sample_gp_field(chol_fact, num_fields=3):
+    """
+    Sample raw GP values given Cholesky factor.
 
-    Input:
-        The cholesky factorization of the covariance matrix for the GP
-    
-    Output:
-        sample ready for for the forward solver wrapper
-    '''
-    M,N=np.shape(GP_factorization)
-    Normal_sample=np.random.normal(size=N)
-    
-    return GP_factorization @ Normal_sample
+    Returns:
+        raw_samples: (M, num_fields) raw GP values at sampled locations
+    """
+    M = chol_fact.shape[0]
+    xi = np.random.randn(M, num_fields)
+    return chol_fact @ xi
 
-def generate_rotation_tensor_sample(GP_factorization):
-    '''
-    Generate a sample of a 3x3 rotation matrix field from a Gaussian Process
-    over 3 Euler angle fields (ZYX convention).
+def gp_to_euler_angles(gp_samples, X, a=1, b=1):
+    """
+    Interpolate GP samples in Euler angle domain over full (X,Y,Z).
 
-    Input:
-        GP_factorization: (N, N) Cholesky factor of the covariance matrix
+    Returns:
+        (N, 3): interpolated Euler angles over full domain
+    """
+    M, D = gp_samples.shape
+    assert D == 3
+    N_full = len(X)
 
-    Output:
-        alpha: (N, 3, 3) array of rotation matrices at N points
-        euler_angles: (N, 3) array of Euler angles [phi, theta, psi] at each point
-    '''
-    N = GP_factorization.shape[0]
+    def sigmoid(x, scale):
+        return 1 / (1 + np.exp(-scale * x))
 
-    # Step 1: Sample 3 independent GP fields for Euler angles
-    angles = np.empty((N, 3), dtype=np.float64)
-    for i in range(3):
-        normal_sample = np.random.normal(size=N)
-        angles[:, i] = GP_factorization @ normal_sample
+    # Map sampled GPs to Euler angles
+    theta = np.pi * sigmoid(gp_samples[:, 0], a)
+    phi   = (np.pi / 2) * sigmoid(gp_samples[:, 1], b)
+    psi   = (np.pi / 2) * sigmoid(gp_samples[:, 2], b)
 
-    # Step 2: Convert Euler angles to rotation matrices
-    # Convention: ZYX (yaw-pitch-roll)
-    rotations = Rotation.from_euler('zyx', angles, degrees=False)
-    alpha = rotations.as_matrix()  # (N, 3, 3)
+    x_samples=np.linspace(0,1,M)
+    x_full   =np.linspace(0,1,N_full)
+    theta_interp=np.interp(x_full,x_samples,theta)
+    phi_interp=np.interp(x_full,x_samples,phi)
+    psi_interp=np.interp(x_full,x_samples,psi)
 
-    return alpha, angles
+    return np.stack([theta_interp, phi_interp, psi_interp], axis=-1)
 
 class Domain:
-    def __init__(self,X,Y,Z,alpha,angles):
+    def __init__(self,X,Y,Z):
         self.X=X
         self.Y=Y
         self.Z=Z
         X_flat=X.ravel()
         Y_flat=Y.ravel()
         Z_flat=Z.ravel()
-
+        
         self.points=np.column_stack([X_flat,Y_flat,Z_flat])
-        self.alpha_tensor=alpha
-        self.yaw  =angles[:,0]
-        self.pitch=angles[:,1]
-        self.roll =angles[:,2]
 
+def check_bounds():
+    X, Y, Z = cylinder_cartesian_grid(1, 1, numpoints_xy=4, numpoints_z=4)
+    Chol_fact=matern_covariance_matrix(X,Y,Z)
+
+    for i in range(50):
+        sample=sample_gp_field(Chol_fact,3)
+        angles=gp_to_euler_angles(sample,X)
+        plt.plot(angles[:,0],'.')
+    plt.show()

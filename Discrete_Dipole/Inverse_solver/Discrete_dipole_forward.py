@@ -4,7 +4,7 @@ import numpy as np
 from numba import njit, prange
 from scipy.spatial.distance import pdist
 
-def poynting_far_field(direction,domain: DS.Domain,Incident_waves: PW.Plane_wave):
+def poynting_far_field(direction,alpha_tensor,domain: DS.Domain,Incident_waves: PW.Plane_wave):
     '''
     Computes the normalized poynting vector in the far field in some direction
 
@@ -19,10 +19,21 @@ def poynting_far_field(direction,domain: DS.Domain,Incident_waves: PW.Plane_wave
     #-----------------------------------------
     # Compute dipole momements
     #-----------------------------------------
-    points=domain.points #shape M,3
-    E_new,_=Incident_waves.evaluate_at_points_reflection(points)
-    alpha=domain.alpha_tensor
-    dipole_moments = np.einsum('mij,rmj->rmi',alpha,E_new) #R,M,3
+    points = domain.points  # shape (M, 3)
+    E_new, _ = Incident_waves.evaluate_at_points_reflection(points)  # shape (R, M, 3)
+    alpha = alpha_tensor  # shape (M, 3, 3)
+
+    # Step 1: Compute rotated direction vector: v_i = alpha_i @ z
+    z_hat = np.array([0.0, 0.0, 1.0])
+    rotated_directions = np.einsum('mij,j->mi', alpha, z_hat)  # shape (M, 3)
+
+    # Step 2: Project E onto the rotated direction
+    # This gives a scalar for each R and M
+    dot_products = np.einsum('rmk,mk->rm', E_new, rotated_directions)  # shape (R, M)
+
+    # Step 3: Multiply the scalar projection with the rotated direction vector
+    dipole_moments = dot_products[:, :, None] * rotated_directions[None, :, :]  # shape (R, M, 3)
+
     M,_=np.shape(points)
     R,_,_=np.shape(dipole_moments)
     #print(f"R: {R}, M: {M}")
@@ -59,25 +70,5 @@ def poynting_far_field(direction,domain: DS.Domain,Incident_waves: PW.Plane_wave
 
     # Final vector
     S = constant_factors[:,None]*(total_sum[:, None] * direction[None, :])  # (R, 3)
-    return S
-
-     
-def testing():
-    import time
-    X,Y,Z=DS.cylinder_cartesian_grid(1,2)
-    factor=DS.matern_covariance_matrix(X,Y,Z)
-    R=100
-    propagation_vector = np.tile([0, 0, -1], (R, 1))
-    beta=np.tile(0,(R))
-    omega=np.tile(1,(R))
-    incident_wave=PW.Plane_wave(propagation_vector,beta,1,2.56,1,omega)
-    direction=np.array([0,0,1])
-    tot_time=time.time()
-    for i in range(100):
-        iter_time=time.time()
-        alpha,angles=DS.generate_rotation_tensor_sample(factor)
-        domain=DS.Domain(X,Y,Z,alpha,angles)
-        poynting_far_field(direction,domain,incident_wave)
-        print(f"iter_time {time.time()-iter_time}")
-    print(f"total_time {time.time()-tot_time}")
-testing()
+    S = 1/2*np.real(np.einsum("rk,k->r",S,direction))
+    return S / np.linalg.norm(S)
